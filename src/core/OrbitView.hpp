@@ -7,7 +7,7 @@
 
 namespace cxo {
 
-// The field drawn as a relief over the plane of the first ring, with every ring lifted onto that relief.
+// The field drawn as a relief over the plane of a base ring, with every traced ring lifted off its own plane by what it reads.
 // A lifted ring is one cycle of its output wrapped around the ring, and each probe's stem is its present value.
 struct OrbitView {
 	float rowSpacing = 5;  // pixels between relief rows at the near edge, roughly
@@ -18,15 +18,13 @@ struct OrbitView {
 	Theme theme;
 
 	template <class Field>
-	void operator()(Painter& out, const Camera& cam, const Field& field, const std::vector<Trace>& traces) const {
-		if (traces.empty())
-			return;
+	void operator()(Painter& out, const Camera& cam, const Field& field, const Ring& base, const std::vector<Trace>& traces) const {
 		const float px = cam.height / 130;
 		const int rows = std::clamp(int(cam.height / rowSpacing), 12, 32);
-		const Ring& base = traces.front().ring;
 		const Vec3 c = base.center, n = base.basis.z;
-		const double half = extent * reach(traces), lift = relief * reach(traces);
-		const auto lifted = [&](Vec3 p) { return p + n * (lift * field(p)); };
+		const double r = std::max(reach(c, traces), 1e-3), half = extent * r, lift = relief * r;
+		const auto liftedOff = [&](Vec3 p, Vec3 normal) { return p + normal * (lift * field(p)); };
+		const auto lifted = [&](Vec3 p) { return liftedOff(p, n); };
 		const auto seg = [&](Vec3 p, Vec3 q, Rgba color, float w) { out.line(cam.project(p), cam.project(q), color, w * px); };
 
 		// The relief is a disc cut into rows along the screen's horizontal, painted far to near, each one filled
@@ -58,6 +56,7 @@ struct OrbitView {
 
 		std::vector<Vec2f> flat, wave;
 		for (const Trace& t : traces) {
+			const auto lifted = [&](Vec3 p) { return liftedOff(p, t.ring.basis.z); };
 			flat.clear();
 			wave.clear();
 			for (int k = 0; k < ringSegments; ++k) {

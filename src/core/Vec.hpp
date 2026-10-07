@@ -39,6 +39,12 @@ struct Mat3 {
 		const double c = std::cos(a), s = std::sin(a);
 		return {{c, s, 0}, {-s, c, 0}, {0, 0, 1}};
 	}
+	// About the unit vector `u`, right-handed.
+	static Mat3 rotate(Vec3 u, double a) {
+		const double c = std::cos(a), s = std::sin(a);
+		const auto image = [&](Vec3 v) { return v * c + cross(u, v) * s + u * (dot(u, v) * (1 - c)); };
+		return {image({1, 0, 0}), image({0, 1, 0}), image({0, 0, 1})};
+	}
 };
 
 } // namespace cxo

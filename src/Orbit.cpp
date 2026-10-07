@@ -42,7 +42,10 @@ struct Orbit : Module {
 		}
 		configSwitch(FIELD_PARAM, 0.f, 2.f, 0.f, "Field", {"Simplex 3D", "Simplex 2D", "Gyroid"});
 		configParam(OCTAVES_PARAM, 1.f, 4.f, 1.f, "Octaves")->snapEnabled = true;
-		configSwitch(MODE_PARAM, 0.f, 1.f, 0.f, "Output mode", {"Phase: outputs spread around one ring", "Pinch: rings that meet at the angle"});
+		configSwitch(MODE_PARAM, 0.f, 4.f, 0.f, "Spread mode",
+		             {"Phase: outputs spread around one ring", "Pinch: rings scaled to meet at the angle", "Stack: rings stacked along the normal",
+		              "Radial: concentric rings", "Fan: rings hinged on the diameter at the angle"});
+		configSwitch(AXIS_PARAM, 0.f, 5.f, 0.f, "Rotation axis", {"Normal (spin in plane)", "Major axis", "Minor axis", "World X", "World Y", "World Z"});
 		configSwitch(RANGE_PARAM, 0.f, 1.f, 1.f, "Range", {"LFO", "Audio"});
 		configInput(VOCT_INPUT, "1V/octave pitch");
 		configInput(SYNC_INPUT, "Hard sync");
@@ -72,7 +75,8 @@ struct Orbit : Module {
 		field.kind = cxo::StockField::Kind(int(params[FIELD_PARAM].getValue()));
 		field.octaves = int(params[OCTAVES_PARAM].getValue());
 		field.seed = seed;
-		const bool pinch = params[MODE_PARAM].getValue() > 0.5f;
+		const auto mode = cxo::OrbitShape::Mode(int(params[MODE_PARAM].getValue()));
+		const auto axis = cxo::Ring::Axis(int(params[AXIS_PARAM].getValue()));
 		const bool probing = outputs[X_OUTPUT].isConnected() || outputs[Y_OUTPUT].isConnected() || outputs[Z_OUTPUT].isConnected();
 		const bool audio = params[RANGE_PARAM].getValue() > 0.5f;
 
@@ -85,12 +89,13 @@ struct Orbit : Module {
 			if (v.sync.process(inputs[SYNC_INPUT].getPolyVoltage(c), 0.1f, 1.f))
 				v.phasor.phase = 0;
 			v.drift += mod(DRIFT_PARAM) * args.sampleTime;
+			v.turn += mod(ROTATE_PARAM) * args.sampleTime;
+			v.turn -= std::floor(v.turn);
 
 			const double tilt = mod(TILT_PARAM) * cxo::PI / 180, azimuth = mod(AZIMUTH_PARAM) * cxo::PI / 180;
-			const cxo::Ring ring{{mod(X_PARAM), mod(Y_PARAM), mod(Z_PARAM) + v.drift},
-			                     cxo::Ring::orient(mod(SPIN_PARAM) * cxo::PI / 180, tilt, azimuth),
-			                     std::max(0.0, mod(MAJOR_PARAM)), std::max(0.0, mod(MINOR_PARAM))};
-			const cxo::OrbitShape shape{ring, pinch, mod(SPREAD_PARAM), mod(ANGLE_PARAM) / 360, OUTS};
+			const cxo::Ring ring = cxo::orbitRing({mod(X_PARAM), mod(Y_PARAM), mod(Z_PARAM) + v.drift}, std::max(0.0, mod(MAJOR_PARAM)),
+			                                      std::max(0.0, mod(MINOR_PARAM)), tilt, azimuth, axis, v.turn);
+			const cxo::OrbitShape shape{ring, mode, mod(SPREAD_PARAM), mod(ANGLE_PARAM) / 360, OUTS};
 
 			unsigned wanted = 0;
 			for (int k = 0; k < OUTS; ++k)
@@ -111,7 +116,7 @@ struct Orbit : Module {
 			}
 
 			if (c == 0 && publishDivider.process()) {
-				cxo::OrbitState s{shape, tilt, azimuth, field, hz, phase, channels, audio};
+				cxo::OrbitState s{shape, tilt, azimuth, axis, field, hz, phase, channels, audio};
 				for (int i = 0; i < MODS; ++i)
 					s.values[i] = i == FREQ_PARAM ? float(baseHz() * std::exp2(mod(i))) : float(mod(i)) * MOD[i].scale;
 				publish(s);

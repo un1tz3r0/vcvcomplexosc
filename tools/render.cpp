@@ -22,9 +22,11 @@ struct Options {
 	int64_t seed = 0;
 	int octaves = 1;
 	Vec3 center;
-	double major = 1, minor = 1, spin = 0, tilt = 0, azimuth = 0;
+	double major = 1, minor = 1, tilt = 0, azimuth = 0;
 	double drift = 0;               // center travel along Z, units per second
-	std::string mode = "phase";     // phase or pinch, see OrbitShape
+	double rotate = 0;              // turns per second about the axis
+	std::string axis = "normal";    // any of Ring::AXIS_NAMES, in any case
+	std::string mode = "phase";     // any of OrbitShape::MODE_NAMES, in any case
 	int outputs = 1;
 	double spread = 0.5, angle = 0; // angle in degrees
 	bool removeDc = true, normalize = true;
@@ -50,7 +52,7 @@ static Options parse(int argc, char** argv) {
 		{"freq", val(o.freq)}, {"seconds", val(o.seconds)}, {"rate", val(o.rate)},
 		{"field", val(o.field)}, {"seed", val(o.seed)}, {"octaves", val(o.octaves)},
 		{"center", vec(&o.center.x, &o.center.y, &o.center.z)}, {"radii", vec(&o.major, &o.minor)},
-		{"orient", vec(&o.spin, &o.tilt, &o.azimuth)}, {"drift", val(o.drift)},
+		{"orient", vec(&o.tilt, &o.azimuth)}, {"drift", val(o.drift)}, {"rotate", val(o.rotate)}, {"axis", val(o.axis)},
 		{"mode", val(o.mode)}, {"outputs", val(o.outputs)}, {"spread", val(o.spread)}, {"angle", val(o.angle)},
 		{"remove-dc", val(o.removeDc)}, {"normalize", val(o.normalize)},
 		{"frames", val(o.frames)}, {"fps", val(o.fps)}, {"cam", vec(&o.camAzimuth, &o.camElevation)},
@@ -64,8 +66,6 @@ static Options parse(int argc, char** argv) {
 			throw std::invalid_argument("bad option " + key);
 		it->second(argv[i + 1]);
 	}
-	if (o.mode != "phase" && o.mode != "pinch")
-		throw std::invalid_argument("unknown mode " + o.mode);
 	if (!o.panel.empty() && o.panel != "light" && o.panel != "dark")
 		throw std::invalid_argument("panel must be light or dark");
 	if (o.outputs < 1 || o.outputs > OrbitVoice::MAX_OUTPUTS)
@@ -73,14 +73,19 @@ static Options parse(int argc, char** argv) {
 	return o;
 }
 
+// The index of `name` among `names`, ignoring case.
+template <size_t N>
+static int lookup(const char* const (&names)[N], std::string name, const char* what) {
+	std::transform(name.begin(), name.end(), name.begin(), ::toupper);
+	const auto it = std::find(std::begin(names), std::end(names), name);
+	if (it == std::end(names))
+		throw std::invalid_argument(std::string("unknown ") + what + " " + name);
+	return int(it - std::begin(names));
+}
+
 static StockField makeField(const Options& o) {
 	StockField f;
-	std::string name = o.field;
-	std::transform(name.begin(), name.end(), name.begin(), ::toupper);
-	const auto it = std::find(std::begin(StockField::NAMES), std::end(StockField::NAMES), name);
-	if (it == std::end(StockField::NAMES))
-		throw std::invalid_argument("unknown field " + o.field);
-	f.kind = StockField::Kind(it - std::begin(StockField::NAMES));
+	f.kind = StockField::Kind(lookup(StockField::NAMES, o.field, "field"));
 	f.seed = o.seed;
 	f.octaves = o.octaves;
 	return f;
@@ -88,14 +93,16 @@ static StockField makeField(const Options& o) {
 
 static OrbitShape shapeAt(const Options& o, double t) {
 	const double deg = PI / 180;
-	const Ring ring{o.center + Vec3{0, 0, o.drift * t}, Ring::orient(o.spin * deg, o.tilt * deg, o.azimuth * deg), o.major, o.minor};
-	return {ring, o.mode == "pinch", o.spread, o.angle / 360, o.outputs};
+	const Ring ring = orbitRing(o.center + Vec3{0, 0, o.drift * t}, o.major, o.minor, o.tilt * deg, o.azimuth * deg,
+	                            Ring::Axis(lookup(Ring::AXIS_NAMES, o.axis, "axis")), o.rotate * t);
+	return {ring, OrbitShape::Mode(lookup(OrbitShape::MODE_NAMES, o.mode, "mode")), o.spread, o.angle / 360, o.outputs};
 }
 
 static OrbitState stateAt(const Options& o, const StockField& field, double t) {
-	OrbitState s{shapeAt(o, t), o.tilt * PI / 180, o.azimuth * PI / 180, field, o.freq, o.viewRate * t, 1, o.freq >= 20};
+	OrbitState s{shapeAt(o, t), o.tilt * PI / 180, o.azimuth * PI / 180, Ring::Axis(lookup(Ring::AXIS_NAMES, o.axis, "axis")),
+	             field, o.freq, o.viewRate * t, 1, o.freq >= 20};
 	s.values = {float(o.freq),  float(o.center.x), float(o.center.y), float(o.center.z), float(o.major), float(o.minor),
-	            float(o.drift), float(o.spin),     float(o.tilt),     float(o.azimuth),  float(o.spread * 100), float(o.angle)};
+	            float(o.drift), float(o.rotate),   float(o.tilt),     float(o.azimuth),  float(o.spread * 100), float(o.angle)};
 	return s;
 }
 
@@ -110,7 +117,8 @@ static float turn(const OrbitState& s, int param) {
 	switch (param) {
 		case FIELD_PARAM: return s.field.kind / 2.f;
 		case OCTAVES_PARAM: return (s.field.octaves - 1) / 3.f;
-		case MODE_PARAM: return s.shape.pinch;
+		case MODE_PARAM: return s.shape.mode / float(OrbitShape::MODES - 1);
+		case AXIS_PARAM: return s.axis / float(Ring::AXES - 1);
 		case RANGE_PARAM: return s.audio;
 		default: return 0.5f;
 	}
