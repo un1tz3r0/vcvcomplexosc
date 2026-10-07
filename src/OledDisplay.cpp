@@ -1,8 +1,7 @@
 #include "OledDisplay.hpp"
+#include "Nvg.hpp"
 
 namespace {
-
-NVGcolor nvg(cxo::Rgba c, float alpha = 1) { return nvgRGBAf(c.r, c.g, c.b, c.a * alpha); }
 
 struct NvgPainter : cxo::Painter {
 	NVGcontext* vg;
@@ -47,13 +46,13 @@ struct NvgPainter : cxo::Painter {
 			nvgFill(vg);
 		}
 	}
-	void label(cxo::Vec2f p, const std::string& text, float size, cxo::Rgba c) override {
+	void label(cxo::Vec2f p, const std::string& text, float size, cxo::Rgba c, int align) override {
 		if (!font || font->handle < 0)
 			return;
 		nvgGlobalCompositeBlendFunc(vg, NVG_SRC_ALPHA, NVG_ONE);
 		nvgFontFaceId(vg, font->handle);
 		nvgFontSize(vg, size);
-		nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+		nvgTextAlign(vg, (align < 0 ? NVG_ALIGN_LEFT : align > 0 ? NVG_ALIGN_RIGHT : NVG_ALIGN_CENTER) | NVG_ALIGN_MIDDLE);
 		nvgFillColor(vg, nvg(c));
 		nvgText(vg, p.x, p.y, text.c_str(), nullptr);
 	}

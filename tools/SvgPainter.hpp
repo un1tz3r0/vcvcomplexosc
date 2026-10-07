@@ -21,6 +21,7 @@ class SvgPainter : public Painter {
 
 public:
 	Rgba background;
+	float radius = 0; // of the corners
 
 	SvgPainter(float width, float height, Rgba background) : Painter(width, height), background(background) {
 		body.precision(4);
@@ -44,15 +45,22 @@ public:
 			body << "<circle cx='" << p.x << "' cy='" << p.y << "' r='" << r * g.width << "' fill='" << rgb(c) << "' fill-opacity='" << c.a * g.alpha
 			     << "' style='mix-blend-mode:plus-lighter'/>\n";
 	}
-	void label(Vec2f p, const std::string& text, float size, Rgba c) override {
+	void label(Vec2f p, const std::string& text, float size, Rgba c, int align) override {
 		body << "<text x='" << p.x << "' y='" << p.y << "' font-size='" << size << "' fill='" << rgb(c) << "' fill-opacity='" << c.a
-		     << "' font-family='Share Tech Mono, monospace' text-anchor='middle' dominant-baseline='central'>" << text << "</text>\n";
+		     << "' font-family='Share Tech Mono, monospace' text-anchor='" << (align < 0 ? "start" : align > 0 ? "end" : "middle")
+		     << "' dominant-baseline='central' style='mix-blend-mode:plus-lighter'>" << text << "</text>\n";
 	}
 
-	std::string str() const {
+	// The drawing as an SVG document, or with `place` (such as "x='1' y='2' width='3' height='4'") as an element
+	// placed inside another one.
+	std::string str(const std::string& place = "") const {
 		std::ostringstream doc;
-		doc << "<svg xmlns='http://www.w3.org/2000/svg' width='" << width << "' height='" << height << "' viewBox='0 0 " << width << ' ' << height
-		    << "'>\n<rect width='100%' height='100%' fill='" << rgb(background) << "'/>\n" << body.str() << "</svg>\n";
+		doc << "<svg xmlns='http://www.w3.org/2000/svg' ";
+		if (place.empty())
+			doc << "width='" << width << "' height='" << height << "'";
+		doc << place << " viewBox='0 0 " << width << ' ' << height << "'>\n<clipPath id='frame'><rect width='" << width << "' height='" << height
+		    << "' rx='" << radius << "'/></clipPath>\n<g clip-path='url(#frame)'>\n<rect width='100%' height='100%' fill='" << rgb(background) << "'/>\n"
+		    << body.str() << "</g>\n</svg>\n";
 		return doc.str();
 	}
 };
