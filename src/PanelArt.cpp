@@ -1,25 +1,41 @@
+#include <map>
 #include "PanelArt.hpp"
+#include "Nvg.hpp"
 
 namespace {
-
-struct Palette {
-	NVGcolor panel, card, sunken, ink, strong, shadow;
-};
-const Palette DARK{nvgRGB(0x1f, 0x22, 0x25), nvgRGB(0x2a, 0x2e, 0x33), nvgRGB(0x15, 0x17, 0x1a), nvgRGB(0x9a, 0xa1, 0xa8), nvgRGB(0xe6, 0xe9, 0xec), nvgRGBA(0, 0, 0, 110)};
-const Palette LIGHT{nvgRGB(0xe4, 0xe6, 0xe9), nvgRGB(0xf6, 0xf7, 0xf8), nvgRGB(0xcf, 0xd3, 0xd8), nvgRGB(0x5b, 0x62, 0x6a), nvgRGB(0x1c, 0x20, 0x24), nvgRGBA(0, 0, 0, 45)};
 
 struct Canvas : widget::Widget {
 	const PanelArt* art;
 	void draw(const DrawArgs& args) override { art->paint(args.vg); }
 };
 
+Vec mm(cxo::Vec2f v) { return mm2px(Vec(v.x, v.y)); }
+
+std::shared_ptr<window::Svg> svgFrom(const std::string& text) {
+	static std::map<std::string, std::shared_ptr<window::Svg>> cache;
+	std::shared_ptr<window::Svg>& svg = cache[text];
+	if (!svg) {
+		svg = std::make_shared<window::Svg>();
+		svg->loadString(text);
+	}
+	return svg;
+}
+
+// The panels' coloured knob, drawn by cxo::knobSvg.
+struct CapKnob : RoundKnob {
+	void paint(float size, cxo::Rgba cap) {
+		setSvg(svgFrom(cxo::knobSvg(size, cap, true)));
+		bg->setSvg(svgFrom(cxo::knobSvg(size, cap, false)));
+	}
+};
+
 } // namespace
 
-PanelArt::PanelArt(Vec size) {
-	box.size = size;
+PanelArt::PanelArt(cxo::Panel panel) : panel(std::move(panel)) {
+	box.size = mm({this->panel.width, this->panel.height});
 	auto* canvas = new Canvas;
 	canvas->art = this;
-	canvas->box.size = size;
+	canvas->box.size = box.size;
 	addChild(canvas);
 }
 
@@ -32,41 +48,64 @@ void PanelArt::step() {
 }
 
 void PanelArt::paint(NVGcontext* vg) const {
-	const Palette& p = dark ? DARK : LIGHT;
-	nvgBeginPath(vg);
-	nvgRect(vg, 0, 0, box.size.x, box.size.y);
-	nvgFillColor(vg, p.panel);
-	nvgFill(vg);
-
-	const float r = mm2px(1.6f);
-	for (const Card& c : cards) {
-		const math::Rect b(mm2px(c.mm.pos), mm2px(c.mm.size));
-		if (!c.sunken) {
-			nvgBeginPath(vg);
-			nvgRect(vg, b.pos.x - 8, b.pos.y - 6, b.size.x + 16, b.size.y + 18);
-			nvgFillPaint(vg, nvgBoxGradient(vg, b.pos.x, b.pos.y + 1.5f, b.size.x, b.size.y, r, 5, p.shadow, nvgRGBA(0, 0, 0, 0)));
-			nvgFill(vg);
-		}
+	const cxo::PanelColors& c = dark ? cxo::DARK_PANEL : cxo::LIGHT_PANEL;
+	const auto rect = [&](cxo::Vec2f from, cxo::Vec2f to, float radius, cxo::Rgba fill) {
+		const Vec a = mm(from), b = mm(to);
 		nvgBeginPath(vg);
-		nvgRoundedRect(vg, b.pos.x, b.pos.y, b.size.x, b.size.y, r);
-		nvgFillColor(vg, c.sunken ? p.sunken : p.card);
+		nvgRoundedRect(vg, a.x, a.y, b.x - a.x, b.y - a.y, mm2px(radius));
+		nvgFillColor(vg, nvg(fill));
 		nvgFill(vg);
-		if (c.sunken) {
-			nvgFillPaint(vg, nvgLinearGradient(vg, 0, b.pos.y, 0, b.pos.y + 6, p.shadow, nvgRGBA(0, 0, 0, 0)));
-			nvgFill(vg);
-		}
+	};
+	rect({0, 0}, {panel.width, panel.height}, 0, c.panel);
+	const float bezel = cxo::Panel::BEZEL;
+	rect({panel.screen.min.x - bezel, panel.screen.min.y - bezel}, {panel.screen.max.x + bezel, panel.screen.max.y + bezel}, 1.6f, c.bezel);
+	for (const cxo::Panel::Rect& r : panel.boxes)
+		rect(r.min, r.max, 1.6f, c.box);
+
+	nvgStrokeColor(vg, nvg(c.wire));
+	nvgStrokeWidth(vg, mm2px(0.25f));
+	for (const cxo::Panel::Wire& w : panel.wires) {
+		const Vec a = mm(w.from), b = mm(w.to);
+		nvgBeginPath(vg);
+		nvgMoveTo(vg, a.x, a.y);
+		nvgLineTo(vg, b.x, b.y);
+		nvgStroke(vg);
 	}
 
 	std::shared_ptr<window::Font> font = APP->window->loadFont(asset::system("res/fonts/Nunito-Bold.ttf"));
 	if (!font || font->handle < 0)
 		return;
 	nvgFontFaceId(vg, font->handle);
-	for (const Text& t : texts) {
-		nvgFontSize(vg, t.size);
-		nvgTextLetterSpacing(vg, t.strong ? 1.2f : 0.6f);
-		nvgTextAlign(vg, (t.align < 0 ? NVG_ALIGN_LEFT : t.align > 0 ? NVG_ALIGN_RIGHT : NVG_ALIGN_CENTER) | NVG_ALIGN_MIDDLE);
-		nvgFillColor(vg, t.strong ? p.strong : p.ink);
-		const Vec pos = mm2px(t.mm);
-		nvgText(vg, pos.x, pos.y, t.text.c_str(), nullptr);
+	nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+	for (const cxo::Panel::Text& t : panel.texts) {
+		const Vec at = mm(t.at);
+		nvgFontSize(vg, mm2px(cxo::Panel::FONT_SIZE[t.style]));
+		nvgFillColor(vg, nvg(c.text(t.style)));
+		nvgText(vg, at.x, at.y, t.text.c_str(), nullptr);
+	}
+}
+
+void addPanel(ModuleWidget* widget, const cxo::Panel& panel) {
+	Module* module = widget->module;
+	widget->addChild(new PanelArt(panel));
+	for (float x : {RACK_GRID_WIDTH, widget->box.size.x - 2 * RACK_GRID_WIDTH})
+		for (float y : {0.f, RACK_GRID_HEIGHT - RACK_GRID_WIDTH})
+			widget->addChild(createWidget<ThemedScrew>(Vec(x, y)));
+
+	for (const cxo::Panel::Control& c : panel.controls) {
+		const Vec at = mm(c.at);
+		switch (c.kind) {
+			case cxo::Panel::KNOB:
+			case cxo::Panel::SELECTOR: {
+				auto* knob = createParam<CapKnob>(Vec(), module, c.id);
+				knob->paint(c.kind == cxo::Panel::KNOB ? cxo::Panel::KNOB_SIZE : cxo::Panel::SELECTOR_SIZE, c.color);
+				knob->box.pos = at.minus(knob->box.size.div(2));
+				widget->addParam(knob);
+				break;
+			}
+			case cxo::Panel::TRIMPOT: widget->addParam(createParamCentered<Trimpot>(at, module, c.id)); break;
+			case cxo::Panel::INPUT: widget->addInput(createInputCentered<ThemedPJ301MPort>(at, module, c.id)); break;
+			case cxo::Panel::OUTPUT: widget->addOutput(createOutputCentered<ThemedPJ301MPort>(at, module, c.id)); break;
+		}
 	}
 }

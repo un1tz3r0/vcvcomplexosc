@@ -1,8 +1,7 @@
 #include "OledDisplay.hpp"
+#include "Nvg.hpp"
 
 namespace {
-
-NVGcolor nvg(cxo::Rgba c, float alpha = 1) { return nvgRGBAf(c.r, c.g, c.b, c.a * alpha); }
 
 struct NvgPainter : cxo::Painter {
 	NVGcontext* vg;

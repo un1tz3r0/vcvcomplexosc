@@ -1,4 +1,5 @@
 #pragma once
+#include <iterator>
 #include <string>
 #include <vector>
 #include "Vec.hpp"
@@ -10,13 +11,28 @@ struct Rgba {
 	Rgba operator*(float k) const { return {r, g, b, a * k}; }
 };
 
-// The OLED palette: one cool phosphor for fields, one warm for rings, near-white for probes.
+constexpr Rgba hex(unsigned rgb, float a = 1) { return {(rgb >> 16 & 255) / 255.f, (rgb >> 8 & 255) / 255.f, (rgb & 255) / 255.f, a}; }
+
+// The OLED palette: an accent phosphor for fields, a contrasting one for rings, near-white for probes.
 struct Theme {
 	Rgba glass{0.010f, 0.013f, 0.016f, 1.f};
 	Rgba field{0.32f, 0.86f, 1.00f, 0.85f};
 	Rgba ring{1.00f, 0.66f, 0.22f, 1.00f};
 	Rgba probe{1.00f, 0.96f, 0.88f, 1.00f};
 	Rgba guide{0.76f, 0.82f, 0.88f, 0.30f};
+
+	static constexpr const char* ACCENTS[] = {"Cyan", "Green", "Amber", "Violet", "White"};
+	static Theme accent(int i) {
+		constexpr Rgba fields[] = {{0.32f, 0.86f, 1.00f, 0.85f}, {0.40f, 1.00f, 0.55f, 0.85f}, {1.00f, 0.70f, 0.26f, 0.85f},
+		                           {0.72f, 0.58f, 1.00f, 0.85f}, {0.86f, 0.90f, 0.96f, 0.80f}};
+		constexpr Rgba rings[] = {{1.00f, 0.66f, 0.22f, 1.f}, {1.00f, 0.72f, 0.28f, 1.f}, {0.50f, 0.88f, 1.00f, 1.f},
+		                          {1.00f, 0.70f, 0.40f, 1.f}, {1.00f, 0.66f, 0.22f, 1.f}};
+		Theme t;
+		i = i < 0 || i >= int(std::size(ACCENTS)) ? 0 : i;
+		t.field = fields[i];
+		t.ring = rings[i];
+		return t;
+	}
 };
 
 // Emissive strokes are painted as a few concentric passes, widest and faintest first, blended additively.

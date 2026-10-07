@@ -100,7 +100,7 @@ struct OrbitView {
 	// with a cursor at the present phase.
 	template <class Field>
 	void strip(Painter& out, float x, float y, float w, float h, const Field& field, const OrbitShape& shape, double phase) const {
-		const float px = h / 40;
+		const float px = out.height / 130;
 		constexpr int N = 160;
 		std::vector<std::vector<float>> waves(shape.count, std::vector<float>(N));
 		float lo = 1e9f, hi = -1e9f;
@@ -114,7 +114,6 @@ struct OrbitView {
 		}
 		const float mid = 0.5f * (lo + hi), scale = 0.42f * h / std::max(0.5f * (hi - lo), 1e-3f);
 		out.rect(x, y, w, h, theme.glass);
-		out.line({x, y}, {x + w, y}, theme.guide * 0.6f, 0.6f * px);
 		std::vector<Vec2f> pts(N);
 		for (int k = shape.count - 1; k >= 0; --k) {
 			for (int i = 0; i < N; ++i)

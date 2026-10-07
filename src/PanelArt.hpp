@@ -1,29 +1,17 @@
 #pragma once
 #include "plugin.hpp"
+#include "core/Panel.hpp"
 
-// Panel graphics painted at runtime from the same layout code that places the controls, so labels can never
-// drift from their knobs. Follows Rack's dark-panel preference and is cached in a framebuffer.
+// A panel's background, screen bezel, wires, output boxes and labels, painted from its description so they can never
+// drift from the controls. Follows Rack's dark-panel setting and is cached in a framebuffer.
 struct PanelArt : widget::FramebufferWidget {
-	struct Text {
-		Vec mm;
-		std::string text;
-		float size;
-		int align; // -1 left, 0 center, 1 right
-		bool strong;
-	};
-	struct Card {
-		math::Rect mm;
-		bool sunken; // sunken cards hold outputs
-	};
-
-	std::vector<Text> texts;
-	std::vector<Card> cards;
+	cxo::Panel panel;
 	bool dark = settings::preferDarkPanels;
 
-	explicit PanelArt(Vec size);
+	explicit PanelArt(cxo::Panel panel);
 	void step() override;
 	void paint(NVGcontext* vg) const;
-
-	void text(Vec mm, std::string s, float size = 6.f, int align = 0, bool strong = false) { texts.push_back({mm, std::move(s), size, align, strong}); }
-	void card(Vec topLeft, Vec bottomRight, bool sunken = false) { cards.push_back({math::Rect(topLeft, bottomRight.minus(topLeft)), sunken}); }
 };
+
+// Gives a module widget its panel: the art, the screws and every control, each bound to its module's param or port.
+void addPanel(ModuleWidget* widget, const cxo::Panel& panel);

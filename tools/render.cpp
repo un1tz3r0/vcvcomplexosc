@@ -1,4 +1,4 @@
-// Headless orbit renderer: audio to a multichannel float WAV, a two-cycle scope and the 3D view to SVG.
+// Headless orbit renderer: audio to a multichannel float WAV, a two-cycle scope, the display and a panel mockup to SVG.
 // Usage: render [--option value]...   (see Options for names and defaults; angles in degrees)
 #include <cstdint>
 #include <cstdio>
@@ -11,6 +11,7 @@
 #include "core/Field.hpp"
 #include "core/Orbit.hpp"
 #include "core/OrbitScene.hpp"
+#include "PanelSvg.hpp"
 #include "SvgPainter.hpp"
 
 using namespace cxo;
@@ -29,7 +30,10 @@ struct Options {
 	bool removeDc = true, normalize = true;
 	int frames = 1;
 	double fps = 30, camAzimuth = -60, camElevation = 29, camOrbit = 0, viewRate = 0.25; // viewRate: probe cycles/s shown in frames
-	float width = 584, height = 266; // twice the module's display
+	float width = 723, height = 216; // twice the module's display
+	std::string panel, rack;         // panel: light or dark for a mockup; rack: Rack's source or SDK, for its component art
+	float panelScale = 6;            // mockup pixels per millimetre
+	int accent = 0;                  // of Theme::ACCENTS
 	std::string out = "orbit";
 };
 
@@ -51,6 +55,7 @@ static Options parse(int argc, char** argv) {
 		{"remove-dc", val(o.removeDc)}, {"normalize", val(o.normalize)},
 		{"frames", val(o.frames)}, {"fps", val(o.fps)}, {"cam", vec(&o.camAzimuth, &o.camElevation)},
 		{"cam-orbit", val(o.camOrbit)}, {"size", vec(&o.width, &o.height)}, {"view-rate", val(o.viewRate)}, {"out", val(o.out)},
+		{"panel", val(o.panel)}, {"rack", val(o.rack)}, {"panel-scale", val(o.panelScale)}, {"accent", val(o.accent)},
 	};
 	for (int i = 1; i < argc; i += 2) {
 		const std::string key = argv[i];
@@ -61,6 +66,8 @@ static Options parse(int argc, char** argv) {
 	}
 	if (o.mode != "phase" && o.mode != "pinch")
 		throw std::invalid_argument("unknown mode " + o.mode);
+	if (!o.panel.empty() && o.panel != "light" && o.panel != "dark")
+		throw std::invalid_argument("panel must be light or dark");
 	if (o.outputs < 1 || o.outputs > OrbitVoice::MAX_OUTPUTS)
 		throw std::invalid_argument("outputs must be 1 to " + std::to_string(OrbitVoice::MAX_OUTPUTS));
 	return o;
@@ -83,6 +90,30 @@ static OrbitShape shapeAt(const Options& o, double t) {
 	const double deg = PI / 180;
 	const Ring ring{o.center + Vec3{0, 0, o.drift * t}, Ring::orient(o.spin * deg, o.tilt * deg, o.azimuth * deg), o.major, o.minor};
 	return {ring, o.mode == "pinch", o.spread, o.angle / 360, o.outputs};
+}
+
+static OrbitState stateAt(const Options& o, const StockField& field, double t) {
+	OrbitState s{shapeAt(o, t), o.tilt * PI / 180, o.azimuth * PI / 180, field, o.freq, o.viewRate * t, 1, o.freq >= 20};
+	s.values = {float(o.freq),  float(o.center.x), float(o.center.y), float(o.center.z), float(o.major), float(o.minor),
+	            float(o.drift), float(o.spin),     float(o.tilt),     float(o.azimuth),  float(o.spread * 100), float(o.angle)};
+	return s;
+}
+
+// Where each of Orbit's knobs points for a state, from 0 to 1.
+static float turn(const OrbitState& s, int param) {
+	using namespace orbit;
+	if (param < MODS) {
+		const Mod& m = MOD[param];
+		const double raw = param == FREQ_PARAM ? std::log2(s.values[param] / (s.audio ? C4 : C4 / 256)) : s.values[param] / m.scale;
+		return std::clamp(float((raw - m.min) / (m.max - m.min)), 0.f, 1.f);
+	}
+	switch (param) {
+		case FIELD_PARAM: return s.field.kind / 2.f;
+		case OCTAVES_PARAM: return (s.field.octaves - 1) / 3.f;
+		case MODE_PARAM: return s.shape.pinch;
+		case RANGE_PARAM: return s.audio;
+		default: return 0.5f;
+	}
 }
 
 static void writeWav(const std::string& path, const std::vector<float>& frames, int channels, int rate) {
@@ -133,18 +164,35 @@ int main(int argc, char** argv) {
 			std::printf("out %d: min %+.3f max %+.3f dc %+.3f rms %.3f\n", c, lo, hi, sum / length, std::sqrt(sq / length));
 		}
 
+		const Panel panel = orbit::panel();
 		OrbitScene scene;
+		scene.taps = panel.taps;
+		scene.view.theme = Theme::accent(o.accent);
 		scene.camElevation = o.camElevation * PI / 180;
 		writeScope(o.out + "-scope.svg", frames, channels, int(std::min<double>(length, 2 * o.rate / o.freq)), scene.view.theme);
 		for (int k = 0; k < o.frames; ++k) {
 			const double t = k / o.fps;
 			scene.camAzimuth = (o.camAzimuth + o.camOrbit * t) * PI / 180;
-			const OrbitState state{shapeAt(o, t), o.tilt * PI / 180, o.azimuth * PI / 180, field, o.freq, o.viewRate * t, 1};
+			const OrbitState state = stateAt(o, field, t);
 			SvgPainter svg(o.width, o.height, scene.view.theme.glass);
 			scene.paint(svg, state);
 			char name[32];
 			std::snprintf(name, sizeof name, o.frames > 1 ? "-view-%04d.svg" : "-view.svg", k);
 			std::ofstream(o.out + name) << svg.str();
+		}
+
+		if (!o.panel.empty()) {
+			// The screen at the size Rack gives it, 75 pixels to the inch, scaled onto the glass.
+			const Panel::Rect& g = panel.screen;
+			const float w = g.max.x - g.min.x, h = g.max.y - g.min.y, px = 75 / 25.4f;
+			const OrbitState state = stateAt(o, field, 0);
+			SvgPainter svg(w * px, h * px, scene.view.theme.glass);
+			svg.radius = 2.5f;
+			scene.paint(svg, state);
+			std::ostringstream place;
+			place << "x='" << g.min.x << "' y='" << g.min.y << "' width='" << w << "' height='" << h << "'";
+			std::ofstream(o.out + "-panel.svg") << panelSvg(panel, o.panel == "dark", o.panelScale, svg.str(place.str()), o.rack,
+			                                                [&](int param) { return turn(state, param); });
 		}
 	} catch (const std::exception& e) {
 		std::cerr << "render: " << e.what() << '\n';
