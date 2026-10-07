@@ -44,15 +44,17 @@ public:
 			body << "<circle cx='" << p.x << "' cy='" << p.y << "' r='" << r * g.width << "' fill='" << rgb(c) << "' fill-opacity='" << c.a * g.alpha
 			     << "' style='mix-blend-mode:plus-lighter'/>\n";
 	}
-	void label(Vec2f p, const std::string& text, float size, Rgba c) override {
+	void label(Vec2f p, const std::string& text, float size, Rgba c, int align) override {
 		body << "<text x='" << p.x << "' y='" << p.y << "' font-size='" << size << "' fill='" << rgb(c) << "' fill-opacity='" << c.a
-		     << "' font-family='Share Tech Mono, monospace' text-anchor='middle' dominant-baseline='central'>" << text << "</text>\n";
+		     << "' font-family='Share Tech Mono, monospace' text-anchor='" << (align < 0 ? "start" : align > 0 ? "end" : "middle")
+		     << "' dominant-baseline='central' style='mix-blend-mode:plus-lighter'>" << text << "</text>\n";
 	}
 
 	std::string str() const {
 		std::ostringstream doc;
 		doc << "<svg xmlns='http://www.w3.org/2000/svg' width='" << width << "' height='" << height << "' viewBox='0 0 " << width << ' ' << height
-		    << "'>\n<rect width='100%' height='100%' fill='" << rgb(background) << "'/>\n" << body.str() << "</svg>\n";
+		    << "'>\n<clipPath id='frame'><rect width='100%' height='100%'/></clipPath>\n<g clip-path='url(#frame)'>\n<rect width='100%' height='100%' fill='"
+		    << rgb(background) << "'/>\n" << body.str() << "</g>\n</svg>\n";
 		return doc.str();
 	}
 };

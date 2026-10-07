@@ -9,8 +9,20 @@
   "authorUrl": "https://github.com/un1tz3r0",
   "pluginUrl": "",
   "manualUrl": "",
-  "sourceUrl": "",
+  "sourceUrl": "https://github.com/un1tz3r0/vcvcomplexosc",
   "donateUrl": "",
   "changelogUrl": "",
-  "modules": []
+  "modules": [
+    {
+      "slug": "Orbit",
+      "name": "Orbit",
+      "description": "Complex oscillator that sweeps elliptical rings through 3D noise fields, with a live 3D view",
+      "tags": [
+        "VCO",
+        "LFO",
+        "Polyphonic",
+        "Visual"
+      ]
+    }
+  ]
 }

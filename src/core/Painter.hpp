@@ -35,9 +35,11 @@ struct Painter {
 	virtual void fill(const std::vector<Vec2f>& pts, Rgba color) = 0; // opaque occluder
 	virtual void stroke(const std::vector<Vec2f>& pts, Rgba color, float lineWidth, bool closed = false) = 0;
 	virtual void dot(Vec2f center, float radius, Rgba color) = 0;
-	virtual void label(Vec2f center, const std::string& text, float size, Rgba color) = 0;
+	// `align` is -1, 0 or 1 to anchor the text's left edge, center or right edge at `pos`; it is centered vertically.
+	virtual void label(Vec2f pos, const std::string& text, float size, Rgba color, int align = 0) = 0;
 
 	void line(Vec2f a, Vec2f b, Rgba color, float lineWidth) { stroke({a, b}, color, lineWidth); }
+	void rect(float x, float y, float w, float h, Rgba color) { fill({{x, y}, {x + w, y}, {x + w, y + h}, {x, y + h}}, color); }
 };
 
 } // namespace cxo

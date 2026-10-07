@@ -2,41 +2,43 @@
 #include "OpenSimplex2.hpp"
 #include "Vec.hpp"
 
-// A field is any callable taking a Vec3 and returning a float in about [-1, 1]. These are the stock ones.
+// A field is any callable taking a Vec3 and returning a float in about [-1, 1].
 namespace cxo {
 
-// OpenSimplex2 with optional fractal octaves. Two-dimensional noise ignores z.
-struct NoiseField {
-	enum class Dim { Two, Three };
-	Dim dim = Dim::Three;
+// The gyroid, a triply periodic minimal surface, with one period every 2 units.
+inline float gyroid(Vec3 p) {
+	p = p * PI;
+	return float(std::sin(p.x) * std::cos(p.y) + std::sin(p.y) * std::cos(p.z) + std::sin(p.z) * std::cos(p.x)) / 1.5f;
+}
+
+// The built-in fields, summed over fractal octaves. Two-dimensional simplex ignores z.
+struct StockField {
+	enum Kind { SIMPLEX3, SIMPLEX2, GYROID, KINDS };
+	static constexpr const char* NAMES[KINDS] = {"SIMPLEX3", "SIMPLEX2", "GYROID"};
+
+	Kind kind = SIMPLEX3;
 	int64_t seed = 0;
 	int octaves = 1;
 	float lacunarity = 2, gain = 0.5f;
 
+	float octave(int i, Vec3 p) const {
+		switch (kind) {
+			case SIMPLEX2: return os2::noise2(seed + i, p.x, p.y);
+			case GYROID: return gyroid(p + Vec3{1.7, 2.3, 0.9} * i); // offset so octaves don't stack in phase
+			default: return os2::noise3(seed + i, p.x, p.y, p.z);
+		}
+	}
+
 	float operator()(Vec3 p) const {
 		float sum = 0, amp = 1, norm = 0;
 		for (int i = 0; i < octaves; ++i) {
-			sum += amp * (dim == Dim::Two ? os2::noise2(seed + i, p.x, p.y) : os2::noise3(seed + i, p.x, p.y, p.z));
+			sum += amp * octave(i, p);
 			norm += amp;
 			amp *= gain;
 			p = p * lacunarity;
 		}
 		return sum / norm;
 	}
-};
-
-// The gyroid, a triply periodic minimal surface, with one period every 2 units.
-struct GyroidField {
-	float operator()(Vec3 p) const {
-		p = p * PI;
-		return float(std::sin(p.x) * std::cos(p.y) + std::sin(p.y) * std::cos(p.z) + std::sin(p.z) * std::cos(p.x)) / 1.5f;
-	}
-};
-
-// A linear ramp along `axis`: sampling it on a ring reads out the raw coordinate of the sampled point.
-struct AxisField {
-	Vec3 axis{1, 0, 0};
-	float operator()(Vec3 p) const { return float(dot(axis, p)); }
 };
 
 } // namespace cxo
