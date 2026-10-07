@@ -21,7 +21,8 @@ Orbit sweeps an elliptical ring through a 3D field (OpenSimplex2 in 3D or 2D, or
 - **X/Y/Z outputs.** The coordinates of output 1's sample point. Drift is left out so the voltages stay in range.
 - **Range and polyphony.** RANGE switches between LFO and audio. The module is polyphonic across V/OCT and every CV input. SYNC is a hard reset of the phase.
 - **Panel.** The twelve knobs sit in two rows, the second offset by half a step, each with its attenuverter and CV input beneath it. A wire runs from every knob up to the bottom of the screen, which shows that knob's value, CV included, where the wire arrives. The five selectors sit beside the screen and are wired to its right edge the same way. Panels follow Rack's dark-panel setting.
-- **Context menu.** DC removal and level normalization are both on by default. They come from a survey of each ring taken every 256 samples. The menu also has a new noise seed and the display options, including its color: cyan, green, amber, violet or white.
+- **Anti-aliasing.** Orbit's waveform has as much detail as the ring passes through, so fast or large rings, and higher octaves, would fold harmonics back past Nyquist. By default, octaves above the first fade out before their detail reaches Nyquist, and each output reads the first octave 1, 2 or 4 times a sample, as few as the ring's speed allows, before filtering back down. Folded-back content stays more than 70 dB down from 220 Hz to 1.76 kHz, against as little as 5 dB down with it off. The context menu can turn the oversampling or both off.
+- **Context menu.** DC removal and level normalization are both on by default. They come from a survey of each ring taken every 512 samples. The menu also has the anti-aliasing setting, a new noise seed and the display options, including its color: cyan, green, amber, violet or white.
 - **Display.** The display shows the field slice as a relief, the ring lifted onto it (one cycle of the waveform wrapped around the ring), each output's probe with its stem height as its current value, world axes, and beside it an unrolled strip of the four waveforms. Drag it to orbit the camera. Audio-rate phase can't be drawn at frame rate, so above 2 Hz the probes turn at the pitch folded down by octaves to under 0.5 Hz.
 
 ![Orbit's display](docs/orbit-display.png)
@@ -62,6 +63,7 @@ This writes `demo.wav` (32-bit float, one channel per output, about ±1), `demo-
 | `--mode` | phase | Spread mode: `phase`, `pinch`, `stack`, `radial` or `fan`, as on the module |
 | `--outputs` `--spread` `--angle` | 1, 0.5, 0 | Output count, spread and angle (degrees), as on the module |
 | `--remove-dc` `--normalize` | 1, 1 | Center and normalize each output as the module does |
+| `--antialias` | 2 | 0 off, 1 octave fade, 2 octave fade and auto oversampling |
 | `--frames` `--fps` `--size w,h` | 1, 30, 723,216 | View frames to write, and their size (default is twice the module display) |
 | `--cam az,el` `--cam-orbit` | -60,29, 0 | Camera angles in degrees relative to the ring's plane, and orbit speed in degrees per second |
 | `--view-rate` | 0.25 | Probe speed in the view frames, in cycles per second |
