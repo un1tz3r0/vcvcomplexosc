@@ -12,31 +12,57 @@ struct Trace {
 	std::vector<double> phases;
 };
 
-// Radius of the smallest ball about the first ring's center that holds every trace.
-inline double reach(const std::vector<Trace>& traces) {
+// Radius of the smallest ball about `center` that holds every trace.
+inline double reach(Vec3 center, const std::vector<Trace>& traces) {
 	double r = 0;
 	for (const Trace& t : traces)
-		r = std::max(r, length(t.ring.center - traces.front().ring.center) + std::max(t.ring.major, t.ring.minor));
+		r = std::max(r, length(t.ring.center - center) + std::max(std::abs(t.ring.major), std::abs(t.ring.minor)));
 	return r;
 }
 
-// Where each of an orbit oscillator's outputs reads its field.
-// Phase mode: every output reads the same ring, the k-th one `spread·k/count` of a cycle ahead.
-// Pinch mode: output k reads a copy of the ring scaled about its point at `angle`, so all copies meet there
-// and fan apart toward the opposite side; `spread` is the scale difference between the outermost copies.
+// Where each of an orbit oscillator's outputs reads its field, by spread mode:
+// - Phase: every output reads the same ring, the k-th one `spread·k/count` of a cycle ahead, all offset by `angle`.
+// - Pinch: copies of the ring scaled about its point at `angle`, so all meet there and fan apart toward the opposite side.
+// - Stack: copies shifted along the normal, `spread` mean diameters from the lowest to the highest.
+// - Radial: concentric copies scaled about the center.
+// - Fan: copies turned about the diameter through `angle`, `spread` half turns from the first to the last,
+//   so they meet at both its ends.
+// Pinch and radial copies differ in scale by `spread` from the smallest to the largest. Stack and radial copies are
+// all read `angle` ahead; pinch and fan copies are read in step, so their meeting points coincide in time too.
 struct OrbitShape {
+	enum Mode { PHASE, PINCH, STACK, RADIAL, FAN, MODES };
+	static constexpr const char* MODE_NAMES[MODES] = {"PHASE", "PINCH", "STACK", "RADIAL", "FAN"};
+
 	Ring ring;
-	bool pinch = false;
+	Mode mode = PHASE;
 	double spread = 0.5, angle = 0; // angle in cycles
 	int count = 4;
 
-	double scale(int k) const { return count > 1 ? 1 + spread * (double(k) / (count - 1) - 0.5) : 1; }
-	Ring ringFor(int k) const { return pinch ? ring.pinched(angle, scale(k)) : ring; }
-	double phaseFor(int k, double phase) const { return pinch ? phase : phase + angle + spread * k / count; }
+	// Output k's place in the family, from -0.5 to 0.5.
+	double rank(int k) const { return count > 1 ? double(k) / (count - 1) - 0.5 : 0; }
+
+	Ring ringFor(int k) const {
+		switch (mode) {
+			case PINCH: return ring.pinched(angle, 1 + spread * rank(k));
+			case STACK: return ring.shifted(ring.basis.z * (spread * (ring.major + ring.minor) * rank(k)));
+			case RADIAL: return ring.scaled(1 + spread * rank(k));
+			case FAN: return ring.hinged(angle, PI * spread * rank(k));
+			default: return ring;
+		}
+	}
+	double phaseFor(int k, double phase) const {
+		switch (mode) {
+			case PHASE: return phase + angle + spread * k / count;
+			case PINCH:
+			case FAN: return phase;
+			default: return phase + angle;
+		}
+	}
 	Vec3 probe(int k, double phase) const { return ringFor(k).at(phaseFor(k, phase)); }
+	bool shared() const { return mode == PHASE; } // whether every output reads the same ring
 
 	std::vector<Trace> traces(double phase) const {
-		if (!pinch) {
+		if (shared()) {
 			Trace t{ring, {}};
 			for (int k = 0; k < count; ++k)
 				t.phases.push_back(phaseFor(k, phase));
@@ -44,10 +70,16 @@ struct OrbitShape {
 		}
 		std::vector<Trace> ts;
 		for (int k = 0; k < count; ++k)
-			ts.push_back({ringFor(k), {phase}});
+			ts.push_back({ringFor(k), {phaseFor(k, phase)}});
 		return ts;
 	}
 };
+
+// A ring as its knobs set it, then turned `turn` cycles about `axis`. Tilt and azimuth are in radians.
+inline Ring orbitRing(Vec3 center, double major, double minor, double tilt, double azimuth, Ring::Axis axis, double turn) {
+	const Ring r{center, Ring::orient(tilt, azimuth), major, minor};
+	return r.turned(r.axis(axis), TAU * turn);
+}
 
 // Mean and range of a field around a ring, from evenly spaced samples.
 struct RingSurvey {
@@ -74,6 +106,7 @@ struct OrbitVoice {
 
 	Phasor phasor;
 	double drift = 0; // Z offset accumulated by the caller
+	double turn = 0;  // rotation in cycles accumulated by the caller
 	float offset[MAX_OUTPUTS] = {}, gain[MAX_OUTPUTS] = {}, targetOffset[MAX_OUTPUTS] = {}, targetGain[MAX_OUTPUTS] = {};
 	int countdown = 0;
 	bool primed = false;
@@ -102,7 +135,7 @@ struct OrbitVoice {
 	template <class Field>
 	void survey(const OrbitShape& shape, const Field& field, bool center, bool normalize) {
 		for (int k = 0; k < shape.count; ++k) {
-			if (k > 0 && !shape.pinch) { // every output reads the same ring
+			if (k > 0 && shape.shared()) {
 				targetOffset[k] = targetOffset[0], targetGain[k] = targetGain[0];
 				continue;
 			}

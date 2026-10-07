@@ -12,7 +12,8 @@ constexpr double C4 = 261.6256;
 // Everything the Orbit display needs to know about the oscillator at one moment.
 struct OrbitState {
 	OrbitShape shape{Ring{{}, {}, 1.2, 0.8}};
-	double tilt = 0, azimuth = 0; // radians: the ring plane's orientation, which the camera rides with
+	double tilt = 0, azimuth = 0; // radians: the ring plane's orientation before rotation, which the camera rides with
+	Ring::Axis axis = Ring::NORMAL;
 	StockField field;
 	double hz = C4, phase = 0;
 	int channels = 1;
@@ -40,7 +41,8 @@ inline std::string readout(int param, const OrbitState& s) {
 	switch (param) {
 		case orbit::FIELD_PARAM: return StockField::NAMES[s.field.kind];
 		case orbit::OCTAVES_PARAM: std::snprintf(text, sizeof text, "%d OCT", s.field.octaves); return text;
-		case orbit::MODE_PARAM: return s.shape.pinch ? "PINCH" : "PHASE";
+		case orbit::MODE_PARAM: return OrbitShape::MODE_NAMES[s.shape.mode];
+		case orbit::AXIS_PARAM: return Ring::AXIS_NAMES[s.axis];
 		case orbit::RANGE_PARAM: return s.audio ? "AUDIO" : "LFO";
 		case orbit::FREQ_PARAM: return hertz(s.values[param]);
 		default: std::snprintf(text, sizeof text, orbit::MOD[param].format, s.values[param]); return text;
@@ -64,8 +66,9 @@ struct OrbitScene {
 		const float w = out.width - (side ? 33 * u : 0), h = out.height - (bottom ? 14 * u : 0), viewW = strip ? 0.62f * w : w;
 
 		const std::vector<Trace> traces = s.shape.traces(s.phase);
-		const Camera cam = Camera::orbit(s.shape.ring.center, 2.35 * reach(traces), camAzimuth, camElevation, viewW, h, Ring::orient(0, s.tilt, s.azimuth));
-		view(out, cam, s.field, traces);
+		const Ring& ring = s.shape.ring;
+		const Camera cam = Camera::orbit(ring.center, 2.35 * reach(ring.center, traces), camAzimuth, camElevation, viewW, h, Ring::orient(s.tilt, s.azimuth));
+		view(out, cam, s.field, ring, traces);
 
 		// Each panel below occludes whatever of the view spills into it, then draws its divider.
 		const Rgba rule = theme.guide * 0.8f;

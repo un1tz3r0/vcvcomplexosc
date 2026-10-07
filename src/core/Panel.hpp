@@ -36,7 +36,7 @@ struct Panel {
 		Rgba color;
 	};
 
-	static constexpr float BEZEL = 1.f, KNOB_SIZE = 10.5f, SELECTOR_SIZE = 7.f, JACK_LABEL = 6.3f;
+	static constexpr float BEZEL = 1.f, KNOB_SIZE = 10.5f, SELECTOR_SIZE = 6.5f, JACK_LABEL = 6.3f;
 	static constexpr float FONT_SIZE[] = {1.9f, 4.4f, 2.f, 1.9f}; // by Style
 
 	float width, height;

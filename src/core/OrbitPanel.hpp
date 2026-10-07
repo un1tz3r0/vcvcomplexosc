@@ -10,9 +10,9 @@ constexpr int MODS = 12, OUTS = 4;
 // The first MODS params each have a CV input and an attenuverter at the same offset.
 enum ParamId {
 	FREQ_PARAM, X_PARAM, Y_PARAM, Z_PARAM, MAJOR_PARAM, MINOR_PARAM,
-	DRIFT_PARAM, SPIN_PARAM, TILT_PARAM, AZIMUTH_PARAM, SPREAD_PARAM, ANGLE_PARAM,
+	DRIFT_PARAM, ROTATE_PARAM, TILT_PARAM, AZIMUTH_PARAM, SPREAD_PARAM, ANGLE_PARAM,
 	ATTEN_PARAM,
-	FIELD_PARAM = ATTEN_PARAM + MODS, OCTAVES_PARAM, MODE_PARAM, RANGE_PARAM,
+	FIELD_PARAM = ATTEN_PARAM + MODS, OCTAVES_PARAM, MODE_PARAM, RANGE_PARAM, AXIS_PARAM,
 	PARAMS_LEN
 };
 enum InputId { CV_INPUT, VOCT_INPUT = CV_INPUT + MODS, SYNC_INPUT, INPUTS_LEN };
@@ -40,7 +40,7 @@ inline constexpr Mod MOD[MODS] = {
 	{"R MAJOR", "Major radius", 0, 4, 1.2f, "", 1, "%.2f", SIZE},
 	{"R MINOR", "Minor radius", 0, 4, 0.8f, "", 1, "%.2f", SIZE},
 	{"DRIFT", "Drift along Z", -1, 1, 0, " units/s", 1, "%+.2f", MOTION},
-	{"SPIN", "Spin", 0, 360, 0, "°", 1, "%.0f°", TURN},
+	{"ROTATE", "Rotation rate", -1, 1, 0, " rev/s", 1, "%+.2f", MOTION},
 	{"TILT", "Tilt", -90, 90, 0, "°", 1, "%+.0f°", TURN},
 	{"AZIMUTH", "Azimuth", 0, 360, 0, "°", 1, "%.0f°", TURN},
 	{"SPREAD", "Spread", 0, 1, 1, "%", 100, "%.0f%%", SPLIT},
@@ -54,8 +54,8 @@ inline Panel panel() {
 
 	// Two rows of knobs, the second half a step over so its wires pass between the first's. Each knob has its
 	// attenuverter and CV input below it. Reading along the zigzag keeps related knobs, and their values, together.
-	constexpr int ORDER[MODS] = {X_PARAM, Y_PARAM, Z_PARAM, MAJOR_PARAM, MINOR_PARAM, SPIN_PARAM,
-	                             TILT_PARAM, AZIMUTH_PARAM, SPREAD_PARAM, ANGLE_PARAM, FREQ_PARAM, DRIFT_PARAM};
+	constexpr int ORDER[MODS] = {X_PARAM, Y_PARAM, Z_PARAM, MAJOR_PARAM, MINOR_PARAM, TILT_PARAM,
+	                             AZIMUTH_PARAM, SPREAD_PARAM, ANGLE_PARAM, FREQ_PARAM, DRIFT_PARAM, ROTATE_PARAM};
 	constexpr float ROWS[] = {61.5f, 89.f}, STEP = 10.2f;
 	for (int s = 0; s < MODS; ++s) {
 		const int id = ORDER[s];
@@ -66,9 +66,10 @@ inline Panel panel() {
 	}
 
 	// Global controls down the right: selectors beside the screen, then pitch and sync with labels in line with the rows'.
-	const std::pair<int, const char*> selectors[] = {{FIELD_PARAM, "FIELD"}, {OCTAVES_PARAM, "OCTAVES"}, {MODE_PARAM, "MODE"}, {RANGE_PARAM, "RANGE"}};
-	for (int i = 0; i < 4; ++i)
-		p.selectorBeside(selectors[i].first, {143.5f, 13.5f + 9.f * i}, selectors[i].second, SELECT);
+	const std::pair<int, const char*> selectors[] = {
+		{FIELD_PARAM, "FIELD"}, {OCTAVES_PARAM, "OCTAVES"}, {MODE_PARAM, "MODE"}, {AXIS_PARAM, "AXIS"}, {RANGE_PARAM, "RANGE"}};
+	for (int i = 0; i < 5; ++i)
+		p.selectorBeside(selectors[i].first, {143.5f, 12.5f + 7.f * i}, selectors[i].second, SELECT);
 	p.jack(Panel::INPUT, VOCT_INPUT, {143.5f, Panel::labelAbove({0, ROWS[0]}) + Panel::JACK_LABEL}, "V/OCT");
 	p.jack(Panel::INPUT, SYNC_INPUT, {143.5f, Panel::labelAbove({0, ROWS[1]}) + Panel::JACK_LABEL}, "SYNC");
 

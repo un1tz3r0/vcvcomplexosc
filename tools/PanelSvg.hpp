@@ -1,13 +1,36 @@
 #pragma once
+#include <algorithm>
+#include <cstdint>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <sstream>
 #include "core/Panel.hpp"
 
 namespace cxo {
 
+inline std::string readFile(const std::string& path) {
+	std::ifstream f(path, std::ios::binary);
+	return {std::istreambuf_iterator<char>(f), {}};
+}
+
+inline std::string base64(const std::string& in) {
+	static const char* digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	std::string out;
+	for (size_t i = 0; i < in.size(); i += 3) {
+		const size_t n = std::min<size_t>(3, in.size() - i);
+		uint32_t v = 0;
+		for (size_t j = 0; j < 3; ++j)
+			v = v << 8 | (j < n ? uint8_t(in[i + j]) : 0);
+		for (size_t j = 0; j < 4; ++j)
+			out += j <= n ? digits[v >> (18 - 6 * j) & 63] : '=';
+	}
+	return out;
+}
+
 // A mockup of a panel as an SVG document in millimetres, `scale` pixels to the millimetre. The panel's own art and
 // knobs are drawn as the plugin draws them; Rack's jacks, trimpots and screws are linked from `rackDir` (Rack's
-// source or SDK), or stood in for by plain discs without it. `screen` is an element placed on the glass, and
+// source or SDK), as is its label font, or stood in for by plain discs without it. `screen` is an element placed on the glass, and
 // `turn(param)` is where each knob points, from 0 to 1.
 inline std::string panelSvg(const Panel& p, bool dark, float scale, const std::string& screen, const std::string& rackDir,
                             const std::function<float(int)>& turn) {
@@ -17,6 +40,9 @@ inline std::string panelSvg(const Panel& p, bool dark, float scale, const std::s
 	s << "<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' width='" << p.width * scale << "' height='"
 	  << p.height * scale << "' viewBox='0 0 " << p.width << ' ' << p.height << "'>\n"
 	  << "<rect width='100%' height='100%' fill='" << css(c.panel) << "'/>\n";
+	if (!rackDir.empty()) // Rack's own label font, embedded since browsers won't load fonts across file:// URLs
+		s << "<style>@font-face{font-family:Nunito;font-weight:700;src:url(data:font/ttf;base64,"
+		  << base64(readFile(rackDir + "/res/fonts/Nunito-Bold.ttf")) << ")}</style>\n";
 
 	const Vec2f b0{p.screen.min.x - Panel::BEZEL, p.screen.min.y - Panel::BEZEL}, b1{p.screen.max.x + Panel::BEZEL, p.screen.max.y + Panel::BEZEL};
 	s << "<rect x='" << b0.x << "' y='" << b0.y << "' width='" << b1.x - b0.x << "' height='" << b1.y - b0.y << "' rx='1.6' fill='" << css(c.bezel) << "'/>\n"
@@ -28,7 +54,7 @@ inline std::string panelSvg(const Panel& p, bool dark, float scale, const std::s
 		s << "<line x1='" << w.from.x << "' y1='" << w.from.y << "' x2='" << w.to.x << "' y2='" << w.to.y << "' stroke='" << css(c.wire)
 		  << "' stroke-width='0.25'/>\n";
 	for (const Panel::Text& t : p.texts)
-		s << "<text x='" << t.at.x << "' y='" << t.at.y << "' font-family='Nunito' font-weight='700' font-size='" << Panel::FONT_SIZE[t.style]
+		s << "<text x='" << t.at.x << "' y='" << t.at.y << "' font-family='Nunito, sans-serif' font-weight='700' font-size='" << Panel::FONT_SIZE[t.style]
 		  << "' fill='" << css(c.text(t.style)) << "' text-anchor='middle' dominant-baseline='central'>" << t.text << "</text>\n";
 
 	const auto art = [&](const char* name, Vec2f at, float size) {

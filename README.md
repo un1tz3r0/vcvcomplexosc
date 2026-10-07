@@ -8,12 +8,19 @@ Oscillators that read their waveforms off 3D fields by sweeping rings through th
 
 Orbit sweeps an elliptical ring through a 3D field (OpenSimplex2 in 3D or 2D, or a gyroid, with up to 4 fractal octaves) and outputs what the ring reads.
 
-- **Ring controls.** Center X/Y/Z, major and minor radius, and spin, tilt and azimuth each have a knob, an attenuverter and a CV input. A full ±5 V CV sweep covers the knob's whole range.
-- **Drift.** Moves the ring through the field along Z over time, so the timbre keeps evolving.
-- **Outputs 1–4.** In phase mode, all four outputs read one ring, each one `spread/4` of a cycle ahead of the last; ANGLE offsets them all together. In pinch mode, each output reads its own copy of the ring. The copies meet at ANGLE and fan apart by SPREAD on the opposite side.
+- **Ring controls.** Center X/Y/Z, major and minor radius, tilt and azimuth each have a knob, an attenuverter and a CV input. A full ±5 V CV sweep covers the knob's whole range.
+- **Drift and rotation.** DRIFT moves the ring through the field along Z over time, and ROTATE turns it at up to one revolution per second about the AXIS selector's choice: the ring's normal (a spin within its plane), its major or minor axis (a tumble), or world X, Y or Z through its center. Both keep the timbre evolving.
+- **Outputs 1–4.** MODE picks how SPREAD sets them apart:
+  - **Phase**: all four read one ring, each `spread/4` of a cycle ahead of the last, and ANGLE offsets them all together.
+  - **Pinch**: each reads a copy of the ring scaled about its point at ANGLE, so the copies meet there and fan apart on the opposite side.
+  - **Stack**: copies shifted along the ring's normal, SPREAD mean diameters from the lowest to the highest.
+  - **Radial**: concentric copies scaled about the center.
+  - **Fan**: copies turned about the diameter through ANGLE, up to half a turn apart at full SPREAD, so they meet at both its ends.
+
+  Pinch and radial copies differ in scale by SPREAD from the smallest to the largest. Stack and radial copies are all read ANGLE ahead, and pinch and fan copies in step, so they reach their meeting points together.
 - **X/Y/Z outputs.** The coordinates of output 1's sample point. Drift is left out so the voltages stay in range.
 - **Range and polyphony.** RANGE switches between LFO and audio. The module is polyphonic across V/OCT and every CV input. SYNC is a hard reset of the phase.
-- **Panel.** The twelve ring knobs sit in two rows, the second offset by half a step, each with its attenuverter and CV input beneath it. A wire runs from every knob up to the bottom of the screen, which shows that knob's value, CV included, where the wire arrives. The four selectors sit beside the screen and are wired to its right edge the same way. Panels follow Rack's dark-panel setting.
+- **Panel.** The twelve knobs sit in two rows, the second offset by half a step, each with its attenuverter and CV input beneath it. A wire runs from every knob up to the bottom of the screen, which shows that knob's value, CV included, where the wire arrives. The five selectors sit beside the screen and are wired to its right edge the same way. Panels follow Rack's dark-panel setting.
 - **Context menu.** DC removal and level normalization are both on by default. They come from a survey of each ring taken every 256 samples. The menu also has a new noise seed and the display options, including its color: cyan, green, amber, violet or white.
 - **Display.** The display shows the field slice as a relief, the ring lifted onto it (one cycle of the waveform wrapped around the ring), each output's probe with its stem height as its current value, world axes, and beside it an unrolled strip of the four waveforms. Drag it to orbit the camera. Audio-rate phase can't be drawn at frame rate, so above 2 Hz the probes turn at the pitch folded down by octaves to under 0.5 Hz.
 
@@ -37,7 +44,7 @@ make -C tools                     # the renderer
 ## Renderer
 
 ```sh
-tools/render --out demo --orient 30,35,20 --radii 1.4,0.8 --outputs 3 --octaves 2
+tools/render --out demo --orient 35,20 --radii 1.4,0.8 --outputs 3 --octaves 2 --mode fan --rotate 0.25 --axis major
 ```
 
 This writes `demo.wav` (32-bit float, one channel per output, about ±1), `demo-scope.svg` (two cycles) and `demo-view.svg`, which is the module's display drawn by the same code. With `--frames N` it writes `demo-view-0000.svg` and onward for animation. With `--panel light` or `--panel dark` it also writes `demo-panel.svg`, a mockup of the whole panel with its knobs set to the options. Pass `--rack` a Rack source or SDK folder to draw its jacks, trimpots and screws from its own artwork.
@@ -49,10 +56,11 @@ This writes `demo.wav` (32-bit float, one channel per output, about ±1), `demo-
 | `--seed` `--octaves` | 0, 1 | Noise seed and fractal octaves |
 | `--center x,y,z` | 0,0,0 | Ring center |
 | `--radii major,minor` | 1,1 | Ellipse radii |
-| `--orient spin,tilt,azimuth` | 0,0,0 | Ring orientation in degrees |
+| `--orient tilt,azimuth` | 0,0 | Ring orientation in degrees |
 | `--drift` | 0 | Center travel along Z, in units per second |
-| `--mode` | phase | `phase` spreads outputs around one ring; `pinch` makes rings that meet at `--angle` |
-| `--outputs` `--spread` `--angle` | 1, 0.5, 0 | Output count, spread (phase offsets or pinch fan-out) and angle (phase offset or meeting point, degrees) |
+| `--rotate` `--axis` | 0, normal | Rotation in turns per second, about `normal`, `major`, `minor`, `x`, `y` or `z` |
+| `--mode` | phase | Spread mode: `phase`, `pinch`, `stack`, `radial` or `fan`, as on the module |
+| `--outputs` `--spread` `--angle` | 1, 0.5, 0 | Output count, spread and angle (degrees), as on the module |
 | `--remove-dc` `--normalize` | 1, 1 | Center and normalize each output as the module does |
 | `--frames` `--fps` `--size w,h` | 1, 30, 723,216 | View frames to write, and their size (default is twice the module display) |
 | `--cam az,el` `--cam-orbit` | -60,29, 0 | Camera angles in degrees relative to the ring's plane, and orbit speed in degrees per second |
