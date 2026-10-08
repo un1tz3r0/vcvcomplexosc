@@ -27,7 +27,7 @@ struct StockField {
 	double limit = INFINITY;
 
 	// Cycles per unit of path up to which the first octave's spectrum stays above about -60 dB, measured on rings.
-	double detail() const { return kind == GYROID ? 1.4 : 3.8; }
+	double detail() const { return kind == GYROID ? 1.4 : 4.4; }
 
 	StockField limited(double cyclesPerUnit) const {
 		StockField f = *this;
