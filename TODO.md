@@ -16,11 +16,11 @@ None reached yet. The first stable release will be milestone 1.
 - A Fundamental and vcvspeak style panel with knobs wired to their values on the screen.
 - Tested in Rack on linux-x64.
 
-## Phase 3: Orbit revisions
+## Phase 3: Orbit revisions (done)
 
 - Drop SPIN, which only duplicates ANGLE on a circular ring, for ROTATE: a rotation rate about an AXIS selector's choice of the ring's own axes or the world's.
 - Spread modes beyond phase and pinch: stack (along the normal), radial (concentric) and fan (hinged on a diameter).
-- Test in Rack on linux-x64.
+- Tested in Rack on linux-x64.
 
 ## Phase 4: Epicycle and Curve
 
