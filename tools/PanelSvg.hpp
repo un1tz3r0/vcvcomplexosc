@@ -57,12 +57,14 @@ inline std::string panelSvg(const Panel& p, bool dark, float scale, const std::s
 		s << "<text x='" << t.at.x << "' y='" << t.at.y << "' font-family='Nunito, sans-serif' font-weight='700' font-size='" << Panel::FONT_SIZE[t.style]
 		  << "' fill='" << css(c.text(t.style)) << "' text-anchor='middle' dominant-baseline='central'>" << t.text << "</text>\n";
 
-	const auto art = [&](const char* name, Vec2f at, float size) {
+	const auto art = [&](const std::string& name, Vec2f at, float size, float height = 0) {
+		height = height > 0 ? height : size;
 		if (rackDir.empty())
-			s << "<circle cx='" << at.x << "' cy='" << at.y << "' r='" << size / 2 << "' fill='#9a9a9a'/>\n";
+			s << "<rect x='" << at.x - size / 2 << "' y='" << at.y - height / 2 << "' width='" << size << "' height='" << height << "' rx='" << height / 2
+			  << "' fill='#9a9a9a'/>\n";
 		else
-			s << "<image href='file://" << rackDir << "/res/ComponentLibrary/" << name << ".svg' x='" << at.x - size / 2 << "' y='" << at.y - size / 2
-			  << "' width='" << size << "' height='" << size << "'/>\n";
+			s << "<image href='file://" << rackDir << "/res/ComponentLibrary/" << name << ".svg' x='" << at.x - size / 2 << "' y='" << at.y - height / 2
+			  << "' width='" << size << "' height='" << height << "' preserveAspectRatio='none'/>\n";
 	};
 	const auto knob = [&](const Panel::Control& k, float size) {
 		const float degrees = (turn(k.id) - 0.5f) * 0.83f * 360;
@@ -74,6 +76,8 @@ inline std::string panelSvg(const Panel& p, bool dark, float scale, const std::s
 		switch (k.kind) {
 			case Panel::KNOB: knob(k, Panel::KNOB_SIZE); break;
 			case Panel::SELECTOR: knob(k, Panel::SELECTOR_SIZE); break;
+			case Panel::SWITCH: art("CKSSThreeHorizontal_" + std::to_string(int(turn(k.id) * 2 + 0.5f)), k.at, Panel::SWITCH_WIDTH, 4.56f); break;
+			case Panel::LIGHT: art("MediumLight", k.at, 3); break;
 			case Panel::TRIMPOT: art("Trimpot_bg", k.at, 6.05f), art("Trimpot", k.at, 6.05f); break;
 			default: art(dark ? "PJ301M-dark" : "PJ301M", k.at, 8.03f);
 		}

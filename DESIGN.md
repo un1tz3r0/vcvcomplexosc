@@ -40,11 +40,15 @@ Param ids changed from phase 3 and patches made before it load with wrong values
 
 The floor is a disc of square cells, cut into rows along the screen's horizontal and painted far to near. Each row is filled down to a skirt below the plane, hiding what it stands in front of, and the grid's columns between it and the row behind are drawn just before it, so one fill per row still occludes the whole mesh. A hue shift bins heights into 4 to 8 bands, so each row's lines go out as one batch per band instead of a stroke per segment. At the module's size, the default grid with a subtle shift costs about twice the draw calls of phase 4's rows for the same number of vertices. The velocity arrows show the center's velocity low-passed at 4 Hz, which averages audio-rate CV out to its net motion.
 
+## Orbit's layout (phase 6)
+
+The global controls moved to the left, where Rack users look for inputs: the selectors and the RANGE switch beside the screen, wired to readouts on its left edge, then V/OCT, SYNC, the LOCK knob and its light. The knobs under the screen shrank from 10.5 to 9 mm and their rows closed up, which made the screen 5 mm taller; the side knobs grew from 6.5 to 7.6 mm. RANGE's three positions put VLFO at 1/64 of LFO, about a minute a cycle at FREQ's center. Saved patches set to audio load as LFO.
+
 ## Orbit's sync (phase 6)
 
 The SYNC knob sets how tightly the input holds the oscillator, and acts only while SYNC is patched.
 
-**Triggers** reset the phase only when it is within a window of 0, from half a cycle (hard: always) down to nothing (free). Tuned near a harmonic of the input, the drift per cycle stays inside the window, so it snaps every cycle and stays locked: the window is the capture range. Tuned away, it runs free and snaps only on the cycles where the phases happen to come round. A snap moves the phase by no more than the window, so softer is also quieter, and each reset is band-limited with a minBLEP.
+**Triggers** reset the phase only when it is within a window of 0, from half a cycle (hard: always) down to nothing (free). Tuned near a harmonic of the input, the drift per cycle stays inside the window, so it snaps every cycle and stays locked: the window is the capture range. Tuned away, it runs free and snaps only on the cycles where the phases happen to come round. A snap moves the phase by no more than the window, so softer is also quieter. The edge's time is interpolated to within the sample, and with a sample's latency the jump lands there: the sample it falls in is read at every quarter, the quarter it splits mixing both sides, before the oversampling filter. That takes 6 to 17 dB off a plain reset's aliasing, leaving it 40 to 64 dB down. A true minBLEP would need the jump's step through the decimator; it is left for polish.
 
 **Ramps** read as phase at 10 V per cycle, so a 0–10 V phasor and a ±5 V saw both work: the saw's edge drops exactly one cycle. A window on a continuous phase would latch on for good after its first snap, so for a ramp the knob sets a pull instead. At hard the phase follows the ramp and FREQ is ignored; softer, it locks when tuned within the pull's reach, with a phase offset that grows with the detune, and slips smoothly otherwise. An input counts as a ramp when it moves steadily one way between jumps; a menu item can force either reading.
 

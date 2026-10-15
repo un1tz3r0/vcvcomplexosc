@@ -18,7 +18,7 @@ struct OrbitState {
 	double hz = C4, phase = 0;
 	Vec3 velocity; // the center's, in units per second
 	int channels = 1;
-	bool audio = true;
+	orbit::Range range = orbit::AUDIO;
 	std::array<float, orbit::MODS> values = defaults(); // each knob with its CV, as the display shows it: Hz, degrees, percent
 
 	static std::array<float, orbit::MODS> defaults() {
@@ -44,7 +44,7 @@ inline std::string readout(int param, const OrbitState& s) {
 		case orbit::OCTAVES_PARAM: std::snprintf(text, sizeof text, "%d OCT", s.field.octaves()); return text;
 		case orbit::MODE_PARAM: return OrbitShape::MODE_NAMES[s.shape.mode];
 		case orbit::AXIS_PARAM: return Ring::AXIS_NAMES[s.axis];
-		case orbit::RANGE_PARAM: return s.audio ? "AUDIO" : "LFO";
+		case orbit::RANGE_PARAM: return orbit::RANGE_NAMES[s.range];
 		case orbit::FREQ_PARAM: return hertz(s.values[param]);
 		default: std::snprintf(text, sizeof text, orbit::MOD[param].format, s.values[param]); return text;
 	}
@@ -66,23 +66,26 @@ struct OrbitScene {
 	void paint(Painter& out, const OrbitState& s) const {
 		const Theme& theme = view.theme;
 		const float u = out.height / 108, font = 6.4f * u;
-		bool bottom = false, right = false;
+		bool edges[3] = {};
 		for (const Panel::Tap& t : taps)
-			(t.side ? right : bottom) = true;
-		const float w = out.width - (right ? 33 * u : 0), h = out.height - (bottom ? 14 * u : 0), viewW = side != OFF ? 0.62f * w : w;
+			edges[t.edge] = true;
+		// Readouts take a strip along each edge that has any; the view and the side panel share what's left, from x0.
+		const float x0 = edges[Panel::LEFT] ? 33 * u : 0, w = out.width - x0 - (edges[Panel::RIGHT] ? 33 * u : 0),
+		            h = out.height - (edges[Panel::BOTTOM] ? 14 * u : 0), viewW = side != OFF ? 0.62f * w : w;
 
 		const std::vector<Trace> traces = s.shape.traces(s.phase);
 		const Ring& ring = s.shape.ring;
-		const Camera cam = Camera::orbit(ring.center, 2.35 * reach(ring.center, traces), camAzimuth, camElevation, viewW, h, Ring::orient(s.pitch, s.roll));
+		Camera cam = Camera::orbit(ring.center, 2.35 * reach(ring.center, traces), camAzimuth, camElevation, viewW, h, Ring::orient(s.pitch, s.roll));
+		cam.offset = {x0, 0};
 		view(out, cam, s.field, ring, traces, s.velocity);
 
 		// Each panel below occludes whatever of the view spills into it, then draws its divider.
 		const Rgba rule = theme.guide * 0.8f;
 		if (side != OFF) {
-			out.rect(viewW, 0, w - viewW, h, theme.glass);
-			out.line({viewW, 5 * u}, {viewW, h - 5 * u}, rule, 0.6f * u);
+			out.rect(x0 + viewW, 0, w - viewW, h, theme.glass);
+			out.line({x0 + viewW, 5 * u}, {x0 + viewW, h - 5 * u}, rule, 0.6f * u);
 			const OrbitView::Cycle waves = OrbitView::cycle(s.field, s.shape);
-			const float x = viewW + 5 * u, y = 7 * u, bw = w - viewW - 10 * u, bh = h - 14 * u, wavesH = side == BOTH ? 0.34f * bh : bh;
+			const float x = x0 + viewW + 5 * u, y = 7 * u, bw = w - viewW - 10 * u, bh = h - 14 * u, wavesH = side == BOTH ? 0.34f * bh : bh;
 			if (side != XY)
 				view.strip(out, x, y, bw, wavesH, waves, s.phase);
 			if (side == BOTH)
@@ -90,26 +93,31 @@ struct OrbitScene {
 			if (side != WAVES)
 				view.xy(out, x, side == BOTH ? y + wavesH + 6 * u : y, bw, side == BOTH ? bh - wavesH - 6 * u : bh, waves, s.phase, equalXY);
 		}
-		if (right) {
-			out.rect(w, 0, out.width - w, h, theme.glass);
-			out.line({w, 5 * u}, {w, h - 5 * u}, rule, 0.6f * u);
+		if (edges[Panel::LEFT]) {
+			out.rect(0, 0, x0, h, theme.glass);
+			out.line({x0, 5 * u}, {x0, h - 5 * u}, rule, 0.6f * u);
 		}
-		if (bottom) {
+		if (edges[Panel::RIGHT]) {
+			out.rect(x0 + w, 0, out.width - x0 - w, h, theme.glass);
+			out.line({x0 + w, 5 * u}, {x0 + w, h - 5 * u}, rule, 0.6f * u);
+		}
+		if (edges[Panel::BOTTOM]) {
 			out.rect(0, h, out.width, out.height - h, theme.glass);
 			out.line({4 * u, h}, {out.width - 4 * u, h}, rule, 0.6f * u);
 		}
 		for (const Panel::Tap& t : taps)
-			if (t.side)
-				out.label({out.width - 4 * u, t.at * out.height}, readout(t.param, s), font, t.color, 1);
-			else
-				out.label({t.at * out.width, 0.5f * (h + out.height)}, readout(t.param, s), font, t.color);
+			switch (t.edge) {
+				case Panel::LEFT: out.label({4 * u, t.at * out.height}, readout(t.param, s), font, t.color, -1); break;
+				case Panel::RIGHT: out.label({out.width - 4 * u, t.at * out.height}, readout(t.param, s), font, t.color, 1); break;
+				default: out.label({t.at * out.width, 0.5f * (h + out.height)}, readout(t.param, s), font, t.color);
+			}
 
 		const Rgba ink = theme.guide * 2.6f;
-		out.label({5 * u, 7 * u}, hertz(s.hz) + " Hz", 7 * u, ink, -1);
+		out.label({x0 + 5 * u, 7 * u}, hertz(s.hz) + " Hz", 7 * u, ink, -1);
 		if (s.channels > 1) {
 			char text[24];
 			std::snprintf(text, sizeof text, "%d VOICES", s.channels);
-			out.label({5 * u, 15 * u}, text, 6 * u, ink * 0.7f, -1);
+			out.label({x0 + 5 * u, 15 * u}, text, 6 * u, ink * 0.7f, -1);
 		}
 	}
 };

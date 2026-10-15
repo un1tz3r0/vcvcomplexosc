@@ -9,7 +9,7 @@ namespace cxo {
 // A module's front panel in millimetres. The plugin builds its widgets and art from it and tools/render draws a
 // mockup of it, so the two can't disagree. Knobs are wired to the screen, which shows each value where its wire arrives.
 struct Panel {
-	enum Kind { KNOB, SELECTOR, TRIMPOT, INPUT, OUTPUT };
+	enum Kind { KNOB, SELECTOR, SWITCH, TRIMPOT, INPUT, OUTPUT, LIGHT }; // SWITCH: three positions, side to side
 	enum Style { LABEL, TITLE, BRAND, BOXED };
 	struct Control {
 		Kind kind;
@@ -28,15 +28,16 @@ struct Panel {
 	struct Wire {
 		Vec2f from, to;
 	};
-	// A param's value shown on the screen's bottom edge, or its right edge if `side`, `at` that fraction along it.
+	// A param's value shown on one of the screen's edges, `at` that fraction along it.
+	enum Edge { BOTTOM, LEFT, RIGHT };
 	struct Tap {
 		int param;
 		float at;
-		bool side;
+		Edge edge;
 		Rgba color;
 	};
 
-	static constexpr float BEZEL = 1.f, KNOB_SIZE = 10.5f, SELECTOR_SIZE = 6.5f, JACK_LABEL = 6.3f;
+	static constexpr float BEZEL = 1.f, KNOB_SIZE = 9.f, SELECTOR_SIZE = 7.6f, SWITCH_WIDTH = 9.6f, JACK_LABEL = 6.3f;
 	static constexpr float FONT_SIZE[] = {1.9f, 4.4f, 2.f, 1.9f}; // by Style
 
 	float width, height;
@@ -58,16 +59,18 @@ struct Panel {
 		text({at.x, y}, label);
 		wires.push_back({{at.x, screen.max.y + BEZEL}, {at.x, y - 1.4f}});
 		wires.push_back({{at.x, y + 1.4f}, {at.x, top}});
-		taps.push_back({id, (at.x - screen.min.x) / (screen.max.x - screen.min.x), false, color});
+		taps.push_back({id, (at.x - screen.min.x) / (screen.max.x - screen.min.x), BOTTOM, color});
 	}
 
-	// A small knob wired across to the screen's right edge, labelled over its wire.
-	void selectorBeside(int id, Vec2f at, const char* label, Rgba color) {
-		const float edge = screen.max.x + BEZEL, left = at.x - SELECTOR_SIZE / 2;
-		controls.push_back({SELECTOR, id, at, color});
-		text({0.5f * (edge + left), at.y - 1.9f}, label);
-		wires.push_back({{edge, at.y}, {left, at.y}});
-		taps.push_back({id, (at.y - screen.min.y) / (screen.max.y - screen.min.y), true, color});
+	// A small knob or a switch wired across to the nearer of the screen's sides, labelled over its wire.
+	void beside(Kind kind, int id, Vec2f at, const char* label, Rgba color) {
+		const bool left = at.x < screen.min.x;
+		const float half = (kind == SWITCH ? SWITCH_WIDTH : SELECTOR_SIZE) / 2, edge = left ? screen.min.x - BEZEL : screen.max.x + BEZEL,
+		            near = left ? at.x + half : at.x - half;
+		controls.push_back({kind, id, at, color});
+		text({0.5f * (edge + near), at.y - 1.9f}, label);
+		wires.push_back({{edge, at.y}, {near, at.y}});
+		taps.push_back({id, (at.y - screen.min.y) / (screen.max.y - screen.min.y), left ? LEFT : RIGHT, color});
 	}
 
 	void jack(Kind kind, int id, Vec2f at, const char* label, Style style = LABEL) {
@@ -75,8 +78,8 @@ struct Panel {
 		text({at.x, at.y - JACK_LABEL}, label, style);
 	}
 
-	// The height of the label of a knob at `at`.
-	static float labelAbove(Vec2f at) { return at.y - KNOB_SIZE / 2 - 2.8f; }
+	// The height of the label of a knob `size` across at `at`.
+	static float labelAbove(Vec2f at, float size = KNOB_SIZE) { return at.y - size / 2 - 2.8f; }
 };
 
 // The panel's colours for Rack's light and dark panel settings.

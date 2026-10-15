@@ -11,6 +11,7 @@
 #include "core/Field.hpp"
 #include "core/Orbit.hpp"
 #include "core/OrbitScene.hpp"
+#include "core/Sync.hpp"
 #include "PanelSvg.hpp"
 #include "SvgPainter.hpp"
 
@@ -31,6 +32,8 @@ struct Options {
 	std::string axis = "normal";    // any of Ring::AXIS_NAMES, in any case
 	std::string mode = "phase";     // any of OrbitShape::MODE_NAMES, in any case
 	double spread = 0.5;
+	double sync = 0, lock = 1;      // sync input frequency (0: unpatched) and the LOCK knob
+	std::string syncWave = "pulse"; // pulse or saw
 	std::string side = "both";      // side panel: off, waves, xy or both
 	bool equalXY = false;
 	std::string floor = "grid";     // rows, grid or dots
@@ -64,7 +67,8 @@ static Options parse(int argc, char** argv) {
 		{"cells", val(o.cells)}, {"metric", val(o.metric)}, {"lattice", val(o.lattice)}, {"jitter", val(o.jitter)}, {"smoothness", val(o.smoothness)},
 		{"center", vec(&o.center.x, &o.center.y, &o.center.z)}, {"radius", val(o.radius)},
 		{"eccentricity", val(o.eccentricity)}, {"orient", vec(&o.pitch, &o.roll)}, {"drift", val(o.drift)}, {"rotate", val(o.rotate)}, {"axis", val(o.axis)},
-		{"mode", val(o.mode)}, {"spread", val(o.spread)}, {"side", val(o.side)}, {"equal-xy", val(o.equalXY)},
+		{"mode", val(o.mode)}, {"spread", val(o.spread)},
+		{"sync", val(o.sync)}, {"lock", val(o.lock)}, {"sync-wave", val(o.syncWave)}, {"side", val(o.side)}, {"equal-xy", val(o.equalXY)},
 		{"floor", val(o.floor)}, {"density", val(o.density)}, {"brightness", val(o.brightness)}, {"hue", val(o.hue)},
 		{"remove-dc", val(o.removeDc)}, {"normalize", val(o.normalize)}, {"antialias", val(o.antialias)},
 		{"frames", val(o.frames)}, {"fps", val(o.fps)}, {"cam", vec(&o.camAzimuth, &o.camElevation)},
@@ -135,7 +139,7 @@ static OrbitShape shapeAt(const Options& o, double t) {
 
 static OrbitState stateAt(const Options& o, const StockField& field, double t) {
 	OrbitState s{shapeAt(o, t), o.pitch * PI / 180, o.roll * PI / 180, Ring::Axis(lookup(Ring::AXIS_NAMES, o.axis, "axis")),
-	             field, o.freq, o.viewRate * t, {0, 0, o.drift}, 1, o.freq >= 20};
+	             field, o.freq, o.viewRate * t, {0, 0, o.drift}, 1, o.freq >= 20 ? orbit::AUDIO : o.freq >= C4 / 4096 ? orbit::LFO : orbit::VLFO};
 	s.values = {float(o.freq),  float(o.center.x), float(o.center.y), float(o.center.z), float(o.radius), float(o.eccentricity),
 	            float(o.drift), float(o.rotate),   float(o.pitch),    float(o.roll),     float(o.spread * 100)};
 	return s;
@@ -146,7 +150,7 @@ static float turn(const OrbitState& s, int param) {
 	using namespace orbit;
 	if (param < MODS) {
 		const Mod& m = MOD[param];
-		const double raw = param == FREQ_PARAM ? std::log2(s.values[param] / (s.audio ? C4 : C4 / 256)) : s.values[param] / m.scale;
+		const double raw = param == FREQ_PARAM ? std::log2(s.values[param] / (C4 / RANGE_DIVISOR[s.range])) : s.values[param] / m.scale;
 		return std::clamp(float((raw - m.min) / (m.max - m.min)), 0.f, 1.f);
 	}
 	switch (param) {
@@ -154,7 +158,8 @@ static float turn(const OrbitState& s, int param) {
 		case OCTAVES_PARAM: return (s.field.octaves() - 1) / 3.f;
 		case MODE_PARAM: return s.shape.mode / float(OrbitShape::MODES - 1);
 		case AXIS_PARAM: return s.axis / float(Ring::AXES - 1);
-		case RANGE_PARAM: return s.audio;
+		case RANGE_PARAM: return s.range / float(RANGES - 1);
+		case SYNC_PARAM: return 1;
 		default: return 0.5f;
 	}
 }
@@ -194,11 +199,22 @@ int main(int argc, char** argv) {
 		const int channels = OrbitShape::OUTPUTS;
 		const size_t length = size_t(o.seconds * o.rate);
 
+		if (o.syncWave != "pulse" && o.syncWave != "saw")
+			throw std::invalid_argument("sync-wave must be pulse or saw");
 		std::vector<float> frames(length * channels);
 		OrbitVoice voice;
+		Sync sync;
 		voice.setAntialias(Antialias::Level(o.antialias));
-		for (size_t i = 0; i < length; ++i)
-			voice.process(shapeAt(o, i / o.rate), fieldAt(o, field, i / o.rate), o.freq, 1 / o.rate, o.removeDc, o.normalize, &frames[i * channels]);
+		for (size_t i = 0; i < length; ++i) {
+			const double t = i / o.rate, cycle = o.sync * t - std::floor(o.sync * t);
+			Sync::Step step{0, 1, o.freq};
+			if (o.sync > 0) {
+				const float in = o.syncWave == "saw" ? float(10 * cycle - 5) : cycle / o.sync < 1e-3 ? float(std::min(10.0, 10 * cycle / o.sync * o.rate)) : 0.f; // edges placed between samples
+				step = sync.process(in, float(o.lock), Sync::AUTO, voice.phasor.phase, o.freq, 1 / o.rate);
+			}
+			voice.process(shapeAt(o, t), fieldAt(o, field, t), step.hz, 1 / o.rate, o.removeDc, o.normalize, &frames[i * channels], ~0u, step.shift,
+			              step.at);
+		}
 		writeWav(o.out + ".wav", frames, channels, int(o.rate));
 
 		for (int c = 0; c < channels; ++c) {
