@@ -8,6 +8,7 @@ struct Camera {
 	Vec3 eye, forward, right, up;
 	double focal;
 	float width, height;
+	Vec2f offset; // of the projection's top left corner on the screen
 
 	Camera(Vec3 eye, Vec3 target, Vec3 sky, float width, float height, double fovY = 0.75)
 		: eye(eye), forward(normalize(target - eye)), right(normalize(cross(forward, sky))), up(cross(right, forward)),
@@ -24,7 +25,7 @@ struct Camera {
 	Vec2f project(Vec3 p) const {
 		const Vec3 d = p - eye;
 		const double s = focal / dot(d, forward);
-		return {float(0.5 * width + s * dot(d, right)), float(0.5 * height - s * dot(d, up))};
+		return {offset.x + float(0.5 * width + s * dot(d, right)), offset.y + float(0.5 * height - s * dot(d, up))};
 	}
 
 	// Orientation only, for gizmos: a unit world direction as a screen-space vector of length ≤ 1.

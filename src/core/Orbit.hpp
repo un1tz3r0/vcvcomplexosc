@@ -124,11 +124,15 @@ struct OrbitVoice {
 			d = Decimator(level == Antialias::AUTO ? OVERSAMPLE : 1);
 	}
 
-	// Writes both outputs, skipping those whose bit in `wanted` is clear, then advances the phase.
+	// Writes both outputs, skipping those whose bit in `wanted` is clear, then advances the phase. The phase jumps by
+	// `shift` cycles `at` that fraction of the way through the sample, if `at` is between 0 and 1, as sync asks.
 	// Returns the phase the outputs were read at.
 	template <class Field>
 	double process(const OrbitShape& shape, const Field& field, double hz, double dt, bool center, bool normalize, float* out,
-	               unsigned wanted = ~0u) {
+	               unsigned wanted = ~0u, double shift = 0, double at = 1) {
+		if (at <= 0)
+			phasor.phase += shift - std::floor(phasor.phase + shift);
+		const bool jumping = at > 0 && at < 1;
 		Ring rings[OUTPUTS];
 		Field fields[OUTPUTS];
 		int factor[OUTPUTS];
@@ -137,7 +141,7 @@ struct OrbitVoice {
 			factor[k] = 1;
 			fields[k] = field;
 			// The read covers perimeter·hz units a second, so detail finer than that over Nyquist would alias.
-			const double speed = perimeter(rings[k]) * hz, nyquist = 0.5 / dt;
+			const double speed = perimeter(rings[k]) * std::abs(hz), nyquist = 0.5 / dt;
 			if (antialias == Antialias::OFF || speed <= 0)
 				continue;
 			if (antialias == Antialias::AUTO)
@@ -156,11 +160,24 @@ struct OrbitVoice {
 			gain[k] += (targetGain[k] - gain[k]) * ease;
 			if (!(wanted >> k & 1))
 				continue;
-			const auto read = [&](double at) { return fields[k](rings[k].at(shape.phaseFor(k, phase + hz * dt * at))); };
+			const auto readAt = [&](double t, bool after) {
+				return fields[k](rings[k].at(shape.phaseFor(k, phase + hz * dt * t + (after ? shift : 0))));
+			};
+			const auto read = [&](double t) { return readAt(t, jumping && t >= at); };
 			float value;
 			if (antialias != Antialias::AUTO)
 				value = read(0);
-			else {
+			else if (jumping) {
+				// Every quarter is read, and the one the jump falls in mixes both sides by how much of it each covers,
+				// so the step lands to within a fraction of a quarter before the decimator band-limits it.
+				float sub[OVERSAMPLE];
+				for (int i = 0; i < OVERSAMPLE; ++i) {
+					const double t = double(i) / OVERSAMPLE, w = std::clamp((t - at) * OVERSAMPLE + 0.5, 0.0, 1.0);
+					sub[i] = w <= 0 ? readAt(t, false) : w >= 1 ? readAt(t, true) : float((1 - w) * readAt(t, false) + w * readAt(t, true));
+				}
+				last[k] = sub[OVERSAMPLE - 1];
+				value = decimators[k].process(sub);
+			} else {
 				// Reads land at the ends of equal steps through the sample, the last at its final quarter, and
 				// the quarters between are interpolated from them and from the last read of the sample before.
 				float sub[OVERSAMPLE];
@@ -175,6 +192,8 @@ struct OrbitVoice {
 			out[k] = gain[k] * (value - offset[k]);
 		}
 		phasor.step(hz, dt);
+		if (jumping)
+			phasor.step(shift, 1);
 		return phase;
 	}
 

@@ -69,7 +69,7 @@ struct OrbitView {
 
 		// World axes in the corner, with the ring's normal and major axis among them.
 		const float g = 13 * px;
-		const Vec2f o{8 * px + g, cam.height - 6 * px - g};
+		const Vec2f o{cam.offset.x + 8 * px + g, cam.offset.y + cam.height - 6 * px - g};
 		const auto arm = [&](Vec3 d, Rgba color, const char* name) {
 			const Vec2f e = cam.projectDir(d);
 			out.line(o, {o.x + e.x * g, o.y + e.y * g}, color, px);

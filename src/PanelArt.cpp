@@ -103,6 +103,8 @@ void addPanel(ModuleWidget* widget, const cxo::Panel& panel) {
 				widget->addParam(knob);
 				break;
 			}
+			case cxo::Panel::SWITCH: widget->addParam(createParamCentered<CKSSThreeHorizontal>(at, module, c.id)); break;
+			case cxo::Panel::LIGHT: widget->addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(at, module, c.id)); break;
 			case cxo::Panel::TRIMPOT: widget->addParam(createParamCentered<Trimpot>(at, module, c.id)); break;
 			case cxo::Panel::INPUT: widget->addInput(createInputCentered<ThemedPJ301MPort>(at, module, c.id)); break;
 			case cxo::Panel::OUTPUT: widget->addOutput(createOutputCentered<ThemedPJ301MPort>(at, module, c.id)); break;

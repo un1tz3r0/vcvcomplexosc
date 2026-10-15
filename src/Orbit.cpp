@@ -4,6 +4,7 @@
 #include "OledDisplay.hpp"
 #include "PanelArt.hpp"
 #include "core/OrbitScene.hpp"
+#include "core/Sync.hpp"
 
 using namespace cxo::orbit;
 
@@ -15,7 +16,7 @@ struct Orbit : Module {
 	};
 
 	struct Voice : cxo::OrbitVoice {
-		dsp::SchmittTrigger sync;
+		cxo::Sync sync;
 	};
 
 	Voice voices[PORT_MAX_CHANNELS];
@@ -23,6 +24,7 @@ struct Orbit : Module {
 	int64_t seed = 0;
 	int accent = 0; // of cxo::Theme::ACCENTS
 	int antialias = cxo::Antialias::AUTO;
+	int syncReading = cxo::Sync::AUTO;
 	int side = cxo::OrbitScene::BOTH, floorStyle = cxo::OrbitView::GRID, floorDensity = 1, floorBrightness = 2, hueShift = 1;
 	bool center = true, normalize = true, autoRotate = true, equalXY = false;
 
@@ -31,10 +33,10 @@ struct Orbit : Module {
 	cxo::Vec3 lastCenter, velocity; // channel 0's center, and its velocity smoothed to a few hertz
 	bool moving = false;            // whether lastCenter holds a center yet
 	std::atomic<int> front{0};
-	dsp::ClockDivider publishDivider;
+	dsp::ClockDivider publishDivider, lightDivider;
 
 	Orbit() {
-		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, 0);
+		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		for (int i = 0; i < MODS; ++i) {
 			const cxo::orbit::Mod& m = MOD[i];
 			if (i == FREQ_PARAM)
@@ -51,18 +53,22 @@ struct Orbit : Module {
 		             {"Phase: B reads the same ring further ahead", "Pinch: B's ring is scaled about phase 0", "Stack: B's ring is shifted along the normal",
 		              "Radial: B's ring is scaled about the center", "Fan: B's ring is turned about the diameter through phase 0"});
 		configSwitch(AXIS_PARAM, 0.f, 5.f, 0.f, "Rotation axis", {"Normal (spin in plane)", "Major axis", "Minor axis", "World X", "World Y", "World Z"});
-		configSwitch(RANGE_PARAM, 0.f, 1.f, 1.f, "Range", {"LFO", "Audio"});
+		configSwitch(RANGE_PARAM, 0.f, 2.f, 2.f, "Range", {"Very slow LFO", "LFO", "Audio"});
+		configParam(SYNC_PARAM, 0.f, 1.f, 1.f, "Sync lock, soft to hard", "%", 0.f, 100.f);
 		configInput(VOCT_INPUT, "1V/octave pitch");
-		configInput(SYNC_INPUT, "Hard sync");
+		configInput(SYNC_INPUT, "Sync: triggers, or a ramp at 10 V per cycle");
+		configLight(SYNC_LIGHT, "Sync phase: green in step, red when the input lags, yellow when it leads");
 		configOutput(WAVE_OUTPUT, "A");
 		configOutput(WAVE_OUTPUT + 1, "B");
 		configOutput(X_OUTPUT, "Probe X");
 		configOutput(Y_OUTPUT, "Probe Y");
 		configOutput(Z_OUTPUT, "Probe Z");
 		publishDivider.setDivision(128);
+		lightDivider.setDivision(32);
 	}
 
-	double baseHz() { return params[RANGE_PARAM].getValue() > 0.5f ? dsp::FREQ_C4 : dsp::FREQ_C4 / 256; }
+	Range range() { return Range(std::clamp(int(params[RANGE_PARAM].getValue() + 0.5f), 0, int(RANGES) - 1)); }
+	double baseHz() { return dsp::FREQ_C4 / RANGE_DIVISOR[range()]; }
 
 	cxo::OrbitState latest() const { return states[front.load(std::memory_order_acquire)]; }
 	void publish(const cxo::OrbitState& s) {
@@ -83,7 +89,8 @@ struct Orbit : Module {
 		const auto mode = cxo::OrbitShape::Mode(int(params[MODE_PARAM].getValue()));
 		const auto axis = cxo::Ring::Axis(int(params[AXIS_PARAM].getValue()));
 		const bool probing = outputs[X_OUTPUT].isConnected() || outputs[Y_OUTPUT].isConnected() || outputs[Z_OUTPUT].isConnected();
-		const bool audio = params[RANGE_PARAM].getValue() > 0.5f;
+		const bool syncing = inputs[SYNC_INPUT].isConnected();
+		const float lock = params[SYNC_PARAM].getValue();
 
 		for (int c = 0; c < channels; ++c) {
 			Voice& v = voices[c];
@@ -91,9 +98,11 @@ struct Orbit : Module {
 			const auto mod = [&](int id) {
 				return double(params[id].getValue() + inputs[CV_INPUT + id].getPolyVoltage(c) * params[ATTEN_PARAM + id].getValue() * perVolt[id]);
 			};
-			const double hz = std::min(baseHz() * std::exp2(mod(FREQ_PARAM) + inputs[VOCT_INPUT].getPolyVoltage(c)), 0.45 * args.sampleRate);
-			if (v.sync.process(inputs[SYNC_INPUT].getPolyVoltage(c), 0.1f, 1.f))
-				v.phasor.phase = 0;
+			const double freeHz = std::min(baseHz() * std::exp2(mod(FREQ_PARAM) + inputs[VOCT_INPUT].getPolyVoltage(c)), 0.45 * args.sampleRate);
+			const cxo::Sync::Step step = syncing ? v.sync.process(inputs[SYNC_INPUT].getPolyVoltage(c), lock, cxo::Sync::Reading(syncReading),
+			                                                      v.phasor.phase, freeHz, args.sampleTime)
+			                                     : cxo::Sync::Step{0, 1, freeHz};
+			const double hz = std::clamp(step.hz, -0.45 * args.sampleRate, 0.45 * args.sampleRate);
 			v.drift += mod(DRIFT_PARAM) * args.sampleTime;
 			v.turn += mod(ROTATE_PARAM) * args.sampleTime;
 			v.turn -= std::floor(v.turn);
@@ -114,7 +123,7 @@ struct Orbit : Module {
 			for (int k = 0; k < OUTS; ++k)
 				wanted |= unsigned(outputs[WAVE_OUTPUT + k].isConnected()) << k;
 			float out[OUTS];
-			const double phase = v.process(shape, field, hz, args.sampleTime, center, normalize, out, wanted);
+			const double phase = v.process(shape, field, hz, args.sampleTime, center, normalize, out, wanted, step.shift, step.at);
 			for (int k = 0; k < OUTS; ++k)
 				if (wanted >> k & 1)
 					outputs[WAVE_OUTPUT + k].setVoltage(5.f * out[k], c);
@@ -129,7 +138,7 @@ struct Orbit : Module {
 			}
 
 			if (c == 0 && publishDivider.process()) {
-				cxo::OrbitState s{shape, pitch, roll, axis, field, hz, phase, velocity, channels, audio};
+				cxo::OrbitState s{shape, pitch, roll, axis, field, std::abs(hz), phase, velocity, channels, range()};
 				for (int i = 0; i < MODS; ++i)
 					s.values[i] = i == FREQ_PARAM ? float(baseHz() * std::exp2(mod(i))) : float(mod(i)) * MOD[i].scale;
 				publish(s);
@@ -137,6 +146,17 @@ struct Orbit : Module {
 		}
 		for (Output& out : outputs)
 			out.setChannels(channels);
+
+		// Channel 0's phase error against the sync input: green within 1% of a cycle, else red when the input lags and
+		// yellow when it leads, brighter the further off.
+		if (lightDivider.process()) {
+			const cxo::Sync& s = voices[0].sync;
+			const double e = s.error, size = std::min(1.0, 0.35 + 1.3 * std::abs(e));
+			const bool lit = syncing && s.quiet < 2, inStep = std::abs(e) < 0.01;
+			const float rgb[3] = {float(lit && !inStep ? size : 0), float(lit ? (inStep ? 1 : e > 0 ? size : 0) : 0), 0};
+			for (int i = 0; i < 3; ++i)
+				lights[SYNC_LIGHT + i].setBrightnessSmooth(rgb[i], args.sampleTime * lightDivider.getDivision());
+		}
 	}
 
 	void onReset(const ResetEvent& e) override {
@@ -146,6 +166,7 @@ struct Orbit : Module {
 		seed = 0;
 		accent = 0;
 		antialias = cxo::Antialias::AUTO;
+		syncReading = cxo::Sync::AUTO;
 		side = cxo::OrbitScene::BOTH;
 		floorStyle = cxo::OrbitView::GRID;
 		floorDensity = 1;
@@ -167,6 +188,7 @@ struct Orbit : Module {
 		json_object_set_new(root, "seed", json_integer(seed));
 		json_object_set_new(root, "accent", json_integer(accent));
 		json_object_set_new(root, "antialias", json_integer(antialias));
+		json_object_set_new(root, "syncReading", json_integer(syncReading));
 		json_object_set_new(root, "center", json_boolean(center));
 		json_object_set_new(root, "normalize", json_boolean(normalize));
 		json_object_set_new(root, "autoRotate", json_boolean(autoRotate));
@@ -186,7 +208,7 @@ struct Orbit : Module {
 			accent = json_integer_value(j);
 		if (json_t* j = json_object_get(root, "antialias"))
 			antialias = std::clamp(int(json_integer_value(j)), 0, cxo::Antialias::LEVELS - 1);
-		for (auto [key, index, count] : {std::tuple{"side", &side, int(cxo::OrbitScene::SIDES)}, {"floor", &floorStyle, int(cxo::OrbitView::FLOORS)},
+		for (auto [key, index, count] : {std::tuple{"side", &side, int(cxo::OrbitScene::SIDES)}, {"syncReading", &syncReading, int(cxo::Sync::READINGS)}, {"floor", &floorStyle, int(cxo::OrbitView::FLOORS)},
 		                                 {"floorDensity", &floorDensity, cxo::OrbitView::DENSITIES},
 		                                 {"floorBrightness", &floorBrightness, cxo::OrbitView::BRIGHTNESSES}, {"hueShift", &hueShift, cxo::OrbitView::HUES}})
 			if (json_t* j = json_object_get(root, key))
@@ -278,6 +300,7 @@ struct OrbitWidget : ModuleWidget {
 		menu->addChild(createBoolPtrMenuItem("Remove DC offset", "", &module->center));
 		menu->addChild(createBoolPtrMenuItem("Normalize level", "", &module->normalize));
 		menu->addChild(createIndexPtrSubmenuItem("Anti-aliasing", std::vector<std::string>(std::begin(cxo::Antialias::NAMES), std::end(cxo::Antialias::NAMES)), &module->antialias));
+		menu->addChild(createIndexPtrSubmenuItem("Read sync input as", std::vector<std::string>(std::begin(cxo::Sync::READING_NAMES), std::end(cxo::Sync::READING_NAMES)), &module->syncReading));
 		menu->addChild(createMenuItem("New noise seed", string::f("%lld", (long long)module->seed), [=] { module->seed = random::u32(); }));
 		menu->addChild(new MenuSeparator);
 		menu->addChild(createMenuLabel("Display"));
