@@ -10,17 +10,16 @@ struct Ring {
 	static constexpr const char* AXIS_NAMES[AXES] = {"NORMAL", "MAJOR", "MINOR", "X", "Y", "Z"};
 
 	Vec3 center;
-	Mat3 basis; // x: major axis, y: minor axis, z: normal
-	double major = 1, minor = 1;
+	Mat3 basis; // x: toward phase 0, y: toward phase 1/4, z: normal
+	double major = 1, minor = 1; // radii along basis x and y; "major" may be the shorter one
 
 	Vec3 at(double phase) const {
 		const double a = TAU * phase;
 		return center + basis.x * (major * std::cos(a)) + basis.y * (minor * std::sin(a));
 	}
 
-	// Tilt lifts the plane about the line of nodes, and azimuth swings that line around world Z.
-	// Both zero lays the ring flat in XY with its major axis along X.
-	static Mat3 orient(double tilt, double azimuth) { return Mat3::rotZ(azimuth) * Mat3::rotX(tilt); }
+	// Pitch turns the ring about world X, then roll about world Y. Both zero lays it flat in XY with phase 0 on X.
+	static Mat3 orient(double pitch, double roll) { return Mat3::rotY(roll) * Mat3::rotX(pitch); }
 
 	Vec3 axis(Axis a) const {
 		const Vec3 axes[AXES] = {basis.z, basis.x, basis.y, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};

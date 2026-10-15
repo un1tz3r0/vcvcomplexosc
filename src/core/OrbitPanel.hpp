@@ -5,12 +5,12 @@
 // Orbit's controls and their layout, shared by the module and tools/render.
 namespace cxo::orbit {
 
-constexpr int MODS = 12, OUTS = 4;
+constexpr int MODS = 11, OUTS = 2;
 
 // The first MODS params each have a CV input and an attenuverter at the same offset.
 enum ParamId {
-	FREQ_PARAM, X_PARAM, Y_PARAM, Z_PARAM, MAJOR_PARAM, MINOR_PARAM,
-	DRIFT_PARAM, ROTATE_PARAM, TILT_PARAM, AZIMUTH_PARAM, SPREAD_PARAM, ANGLE_PARAM,
+	FREQ_PARAM, X_PARAM, Y_PARAM, Z_PARAM, RADIUS_PARAM, ECCENTRICITY_PARAM,
+	DRIFT_PARAM, ROTATE_PARAM, PITCH_PARAM, ROLL_PARAM, SPREAD_PARAM,
 	ATTEN_PARAM,
 	FIELD_PARAM = ATTEN_PARAM + MODS, OCTAVES_PARAM, MODE_PARAM, RANGE_PARAM, AXIS_PARAM,
 	PARAMS_LEN
@@ -37,14 +37,13 @@ inline constexpr Mod MOD[MODS] = {
 	{"X", "Center X", -5, 5, 0, "", 1, "%+.2f", PLACE},
 	{"Y", "Center Y", -5, 5, 0, "", 1, "%+.2f", PLACE},
 	{"Z", "Center Z", -5, 5, 0, "", 1, "%+.2f", PLACE},
-	{"R MAJOR", "Major radius", 0, 4, 1.2f, "", 1, "%.2f", SIZE},
-	{"R MINOR", "Minor radius", 0, 4, 0.8f, "", 1, "%.2f", SIZE},
+	{"RADIUS", "Radius", 0, 4, 1, "", 1, "%.2f", SIZE},
+	{"ECCENTRIC", "Eccentricity", -1, 1, 0.2f, "", 1, "%+.2f", SIZE},
 	{"DRIFT", "Drift along Z", -1, 1, 0, " units/s", 1, "%+.2f", MOTION},
 	{"ROTATE", "Rotation rate", -1, 1, 0, " rev/s", 1, "%+.2f", MOTION},
-	{"TILT", "Tilt", -90, 90, 0, "°", 1, "%+.0f°", TURN},
-	{"AZIMUTH", "Azimuth", 0, 360, 0, "°", 1, "%.0f°", TURN},
-	{"SPREAD", "Spread", 0, 1, 1, "%", 100, "%.0f%%", SPLIT},
-	{"ANGLE", "Angle", 0, 360, 0, "°", 1, "%.0f°", SPLIT},
+	{"PITCH", "Pitch", -90, 90, 0, "°", 1, "%+.0f°", TURN},
+	{"ROLL", "Roll", -90, 90, 0, "°", 1, "%+.0f°", TURN},
+	{"SPREAD", "Spread", -1, 1, 0.5f, "%", 100, "%+.0f%%", SPLIT},
 };
 
 inline Panel panel() {
@@ -54,9 +53,9 @@ inline Panel panel() {
 
 	// Two rows of knobs, the second half a step over so its wires pass between the first's. Each knob has its
 	// attenuverter and CV input below it. Reading along the zigzag keeps related knobs, and their values, together.
-	constexpr int ORDER[MODS] = {X_PARAM, Y_PARAM, Z_PARAM, MAJOR_PARAM, MINOR_PARAM, TILT_PARAM,
-	                             AZIMUTH_PARAM, SPREAD_PARAM, ANGLE_PARAM, FREQ_PARAM, DRIFT_PARAM, ROTATE_PARAM};
-	constexpr float ROWS[] = {61.5f, 89.f}, STEP = 10.2f;
+	constexpr int ORDER[MODS] = {X_PARAM,    Y_PARAM,      Z_PARAM,   RADIUS_PARAM, ECCENTRICITY_PARAM, PITCH_PARAM,
+	                             ROLL_PARAM, SPREAD_PARAM, FREQ_PARAM, DRIFT_PARAM,  ROTATE_PARAM};
+	constexpr float ROWS[] = {61.5f, 89.f}, STEP = 11.2f;
 	for (int s = 0; s < MODS; ++s) {
 		const int id = ORDER[s];
 		const Vec2f at{9.65f + STEP * s, ROWS[s % 2]};
@@ -73,13 +72,13 @@ inline Panel panel() {
 	p.jack(Panel::INPUT, VOCT_INPUT, {143.5f, Panel::labelAbove({0, ROWS[0]}) + Panel::JACK_LABEL}, "V/OCT");
 	p.jack(Panel::INPUT, SYNC_INPUT, {143.5f, Panel::labelAbove({0, ROWS[1]}) + Panel::JACK_LABEL}, "SYNC");
 
-	const char* outs[OUTS + 3] = {"OUT 1", "OUT 2", "OUT 3", "OUT 4", "X", "Y", "Z"};
-	float x = 40.45f;
+	const char* outs[OUTS + 3] = {"A", "B", "X", "Y", "Z"};
+	float x = 53.2f;
 	for (int k = 0; k < OUTS + 3; ++k, x += 11.5f) {
 		x += k == OUTS ? 2.5f : 0.f;
 		p.jack(Panel::OUTPUT, WAVE_OUTPUT + k, {x, 116.5f}, outs[k], Panel::BOXED);
 	}
-	p.boxes.push_back({{33.45f, 107.5f}, {x - 4.5f, 123.f}});
+	p.boxes.push_back({{53.2f - 7.f, 107.5f}, {x - 4.5f, 123.f}});
 	return p;
 }
 

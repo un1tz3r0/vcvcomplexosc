@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <array>
 #include <vector>
 #include "Camera.hpp"
 #include "Orbit.hpp"
@@ -95,32 +96,79 @@ struct OrbitView {
 		arm(n, theme.ring, nullptr);
 	}
 
-	// One cycle of every output unrolled left to right in the box (x, y, w, h), fitted to its height,
-	// with a cursor at the present phase.
+	// One cycle of both outputs as read straight from the field, N points each with the last back at phase 0.
+	using Cycle = std::array<std::vector<float>, OrbitShape::OUTPUTS>;
 	template <class Field>
-	void strip(Painter& out, float x, float y, float w, float h, const Field& field, const OrbitShape& shape, double phase) const {
-		const float px = out.height / 130;
-		constexpr int N = 160;
-		std::vector<std::vector<float>> waves(shape.count, std::vector<float>(N));
-		float lo = 1e9f, hi = -1e9f;
-		for (int k = 0; k < shape.count; ++k) {
+	static Cycle cycle(const Field& field, const OrbitShape& shape, int n = 160) {
+		Cycle waves;
+		for (int k = 0; k < OrbitShape::OUTPUTS; ++k) {
 			const Ring ring = shape.ringFor(k);
-			for (int i = 0; i < N; ++i) {
-				const float v = waves[k][i] = field(ring.at(shape.phaseFor(k, double(i) / (N - 1))));
-				lo = std::min(lo, v);
-				hi = std::max(hi, v);
-			}
+			for (int i = 0; i < n; ++i)
+				waves[k].push_back(field(ring.at(shape.phaseFor(k, double(i) / (n - 1)))));
 		}
+		return waves;
+	}
+
+	// Both outputs unrolled left to right in the box (x, y, w, h), fitted to its height, with a cursor at the present phase.
+	void strip(Painter& out, float x, float y, float w, float h, const Cycle& waves, double phase) const {
+		const float px = out.height / 130;
+		const int n = int(waves[0].size());
+		float lo = 1e9f, hi = -1e9f;
+		for (const auto& wave : waves)
+			for (float v : wave)
+				lo = std::min(lo, v), hi = std::max(hi, v);
 		const float mid = 0.5f * (lo + hi), scale = 0.42f * h / std::max(0.5f * (hi - lo), 1e-3f);
 		out.rect(x, y, w, h, theme.glass);
-		std::vector<Vec2f> pts(N);
-		for (int k = shape.count - 1; k >= 0; --k) {
-			for (int i = 0; i < N; ++i)
-				pts[i] = {x + w * i / (N - 1), y + 0.5f * h - (waves[k][i] - mid) * scale};
-			out.stroke(pts, k == 0 ? theme.ring : theme.field * (1 - 0.18f * k), (k == 0 ? 1.3f : 0.9f) * px);
+		std::vector<Vec2f> pts(n);
+		for (int k = OrbitShape::OUTPUTS - 1; k >= 0; --k) {
+			for (int i = 0; i < n; ++i)
+				pts[i] = {x + w * i / (n - 1), y + 0.5f * h - (waves[k][i] - mid) * scale};
+			out.stroke(pts, k == 0 ? theme.ring : theme.field, (k == 0 ? 1.3f : 0.9f) * px);
 		}
 		const float cx = x + w * float(phase - std::floor(phase));
 		out.line({cx, y + 2 * px}, {cx, y + h - 2 * px}, theme.probe * 0.5f, 0.8f * px);
+	}
+
+	// A against B over one cycle in the box (x, y, w, h), each fitted to its axis or, if `equal`, both at one scale,
+	// with the present phase as a dot trailing a fading tail.
+	void xy(Painter& out, float x, float y, float w, float h, const Cycle& waves, double phase, bool equal) const {
+		const float px = out.height / 130;
+		const int n = int(waves[0].size());
+		float mid[2], half[2];
+		for (int k = 0; k < 2; ++k) {
+			const auto [lo, hi] = std::minmax_element(waves[k].begin(), waves[k].end());
+			mid[k] = 0.5f * (*lo + *hi);
+			half[k] = std::max(0.5f * (*hi - *lo), 1e-3f);
+		}
+		float sx = 0.44f * w / half[0], sy = 0.44f * h / half[1];
+		if (equal)
+			sx = sy = std::min(sx, sy);
+		const float cx = x + 0.5f * w, cy = y + 0.5f * h;
+		const auto at = [&](double i) {
+			const int j = std::min(int(i), n - 2);
+			const float f = float(i - j);
+			const float a = waves[0][j] + (waves[0][j + 1] - waves[0][j]) * f, b = waves[1][j] + (waves[1][j + 1] - waves[1][j]) * f;
+			return Vec2f{cx + (a - mid[0]) * sx, cy - (b - mid[1]) * sy};
+		};
+
+		out.rect(x, y, w, h, theme.glass);
+		const Rgba rule = theme.guide * 0.8f;
+		out.line({x + 2 * px, cy}, {x + w - 2 * px, cy}, rule, 0.6f * px);
+		out.line({cx, y + 2 * px}, {cx, y + h - 2 * px}, rule, 0.6f * px);
+		out.label({x + w - 3 * px, cy - 3 * px}, "A", 6 * px, theme.guide * 2.2f, 1);
+		out.label({cx + 3 * px, y + 6 * px}, "B", 6 * px, theme.guide * 2.2f, -1);
+
+		std::vector<Vec2f> pts(n);
+		for (int i = 0; i < n; ++i)
+			pts[i] = at(i);
+		out.stroke(pts, theme.ring, 1.2f * px, true);
+		const double head = (phase - std::floor(phase)) * (n - 1);
+		constexpr int TAIL = 12;
+		for (int k = 0; k < TAIL; ++k) {
+			const auto back = [&](int steps) { return std::fmod(head - trail * (n - 1) * steps / TAIL + (n - 1), double(n - 1)); };
+			out.line(at(back(k + 1)), at(back(k)), theme.probe * (0.6f * (1 - float(k) / TAIL)), 2.f * px);
+		}
+		out.dot(at(head), 2.4f * px, theme.probe);
 	}
 };
 

@@ -22,13 +22,14 @@ struct Options {
 	int64_t seed = 0;
 	int octaves = 1;
 	Vec3 center;
-	double major = 1, minor = 1, tilt = 0, azimuth = 0;
+	double radius = 1, eccentricity = 0.2, pitch = 0, roll = 0;
 	double drift = 0;               // center travel along Z, units per second
 	double rotate = 0;              // turns per second about the axis
 	std::string axis = "normal";    // any of Ring::AXIS_NAMES, in any case
 	std::string mode = "phase";     // any of OrbitShape::MODE_NAMES, in any case
-	int outputs = 1;
-	double spread = 0.5, angle = 0; // angle in degrees
+	double spread = 0.5;
+	std::string side = "both";      // side panel: off, waves, xy or both
+	bool equalXY = false;
 	bool removeDc = true, normalize = true;
 	int antialias = Antialias::AUTO;
 	int frames = 1;
@@ -52,9 +53,9 @@ static Options parse(int argc, char** argv) {
 	const std::map<std::string, std::function<void(const std::string&)>> set{
 		{"freq", val(o.freq)}, {"seconds", val(o.seconds)}, {"rate", val(o.rate)},
 		{"field", val(o.field)}, {"seed", val(o.seed)}, {"octaves", val(o.octaves)},
-		{"center", vec(&o.center.x, &o.center.y, &o.center.z)}, {"radii", vec(&o.major, &o.minor)},
-		{"orient", vec(&o.tilt, &o.azimuth)}, {"drift", val(o.drift)}, {"rotate", val(o.rotate)}, {"axis", val(o.axis)},
-		{"mode", val(o.mode)}, {"outputs", val(o.outputs)}, {"spread", val(o.spread)}, {"angle", val(o.angle)},
+		{"center", vec(&o.center.x, &o.center.y, &o.center.z)}, {"radius", val(o.radius)},
+		{"eccentricity", val(o.eccentricity)}, {"orient", vec(&o.pitch, &o.roll)}, {"drift", val(o.drift)}, {"rotate", val(o.rotate)}, {"axis", val(o.axis)},
+		{"mode", val(o.mode)}, {"spread", val(o.spread)}, {"side", val(o.side)}, {"equal-xy", val(o.equalXY)},
 		{"remove-dc", val(o.removeDc)}, {"normalize", val(o.normalize)}, {"antialias", val(o.antialias)},
 		{"frames", val(o.frames)}, {"fps", val(o.fps)}, {"cam", vec(&o.camAzimuth, &o.camElevation)},
 		{"cam-orbit", val(o.camOrbit)}, {"size", vec(&o.width, &o.height)}, {"view-rate", val(o.viewRate)}, {"out", val(o.out)},
@@ -71,8 +72,6 @@ static Options parse(int argc, char** argv) {
 		throw std::invalid_argument("panel must be light or dark");
 	if (o.antialias < 0 || o.antialias >= Antialias::LEVELS)
 		throw std::invalid_argument("antialias must be 0 to " + std::to_string(Antialias::LEVELS - 1));
-	if (o.outputs < 1 || o.outputs > OrbitVoice::MAX_OUTPUTS)
-		throw std::invalid_argument("outputs must be 1 to " + std::to_string(OrbitVoice::MAX_OUTPUTS));
 	return o;
 }
 
@@ -96,16 +95,16 @@ static StockField makeField(const Options& o) {
 
 static OrbitShape shapeAt(const Options& o, double t) {
 	const double deg = PI / 180;
-	const Ring ring = orbitRing(o.center + Vec3{0, 0, o.drift * t}, o.major, o.minor, o.tilt * deg, o.azimuth * deg,
+	const Ring ring = orbitRing(o.center + Vec3{0, 0, o.drift * t}, o.radius, o.eccentricity, o.pitch * deg, o.roll * deg,
 	                            Ring::Axis(lookup(Ring::AXIS_NAMES, o.axis, "axis")), o.rotate * t);
-	return {ring, OrbitShape::Mode(lookup(OrbitShape::MODE_NAMES, o.mode, "mode")), o.spread, o.angle / 360, o.outputs};
+	return {ring, OrbitShape::Mode(lookup(OrbitShape::MODE_NAMES, o.mode, "mode")), o.spread};
 }
 
 static OrbitState stateAt(const Options& o, const StockField& field, double t) {
-	OrbitState s{shapeAt(o, t), o.tilt * PI / 180, o.azimuth * PI / 180, Ring::Axis(lookup(Ring::AXIS_NAMES, o.axis, "axis")),
+	OrbitState s{shapeAt(o, t), o.pitch * PI / 180, o.roll * PI / 180, Ring::Axis(lookup(Ring::AXIS_NAMES, o.axis, "axis")),
 	             field, o.freq, o.viewRate * t, 1, o.freq >= 20};
-	s.values = {float(o.freq),  float(o.center.x), float(o.center.y), float(o.center.z), float(o.major), float(o.minor),
-	            float(o.drift), float(o.rotate),   float(o.tilt),     float(o.azimuth),  float(o.spread * 100), float(o.angle)};
+	s.values = {float(o.freq),  float(o.center.x), float(o.center.y), float(o.center.z), float(o.radius), float(o.eccentricity),
+	            float(o.drift), float(o.rotate),   float(o.pitch),    float(o.roll),     float(o.spread * 100)};
 	return s;
 }
 
@@ -159,7 +158,7 @@ int main(int argc, char** argv) {
 	try {
 		const Options o = parse(argc, argv);
 		const StockField field = makeField(o);
-		const int channels = o.outputs;
+		const int channels = OrbitShape::OUTPUTS;
 		const size_t length = size_t(o.seconds * o.rate);
 
 		std::vector<float> frames(length * channels);
@@ -180,6 +179,13 @@ int main(int argc, char** argv) {
 		OrbitScene scene;
 		scene.taps = panel.taps;
 		scene.view.theme = Theme::accent(o.accent);
+		std::string side = o.side;
+		std::transform(side.begin(), side.end(), side.begin(), ::tolower);
+		const std::map<std::string, OrbitScene::Side> sides{{"off", OrbitScene::OFF}, {"waves", OrbitScene::WAVES}, {"xy", OrbitScene::XY}, {"both", OrbitScene::BOTH}};
+		if (!sides.count(side))
+			throw std::invalid_argument("side must be off, waves, xy or both");
+		scene.side = sides.at(side);
+		scene.equalXY = o.equalXY;
 		scene.camElevation = o.camElevation * PI / 180;
 		writeScope(o.out + "-scope.svg", frames, channels, int(std::min<double>(length, 2 * o.rate / o.freq)), scene.view.theme);
 		for (int k = 0; k < o.frames; ++k) {
