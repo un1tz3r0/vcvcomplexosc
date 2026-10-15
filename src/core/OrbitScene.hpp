@@ -41,7 +41,7 @@ inline std::string readout(int param, const OrbitState& s) {
 	char text[16];
 	switch (param) {
 		case orbit::FIELD_PARAM: return StockField::NAMES[s.field.kind];
-		case orbit::OCTAVES_PARAM: std::snprintf(text, sizeof text, "%d OCT", s.field.octaves); return text;
+		case orbit::OCTAVES_PARAM: std::snprintf(text, sizeof text, "%d OCT", s.field.octaves()); return text;
 		case orbit::MODE_PARAM: return OrbitShape::MODE_NAMES[s.shape.mode];
 		case orbit::AXIS_PARAM: return Ring::AXIS_NAMES[s.axis];
 		case orbit::RANGE_PARAM: return s.audio ? "AUDIO" : "LFO";

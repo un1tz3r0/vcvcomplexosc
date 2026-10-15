@@ -141,7 +141,7 @@ struct OrbitVoice {
 			if (antialias == Antialias::OFF || speed <= 0)
 				continue;
 			if (antialias == Antialias::AUTO)
-				for (const double need = field.detail() * speed / nyquist; factor[k] < OVERSAMPLE && need > 0.5 * factor[k];)
+				for (const double need = field.bandwidth() * speed / nyquist; factor[k] < OVERSAMPLE && need > 0.5 * factor[k];)
 					factor[k] *= 2;
 			fields[k] = field.limited(factor[k] * nyquist / speed);
 		}
