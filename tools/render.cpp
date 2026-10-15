@@ -30,6 +30,7 @@ struct Options {
 	int outputs = 1;
 	double spread = 0.5, angle = 0; // angle in degrees
 	bool removeDc = true, normalize = true;
+	int antialias = Antialias::AUTO;
 	int frames = 1;
 	double fps = 30, camAzimuth = -60, camElevation = 29, camOrbit = 0, viewRate = 0.25; // viewRate: probe cycles/s shown in frames
 	float width = 723, height = 216; // twice the module's display
@@ -54,7 +55,7 @@ static Options parse(int argc, char** argv) {
 		{"center", vec(&o.center.x, &o.center.y, &o.center.z)}, {"radii", vec(&o.major, &o.minor)},
 		{"orient", vec(&o.tilt, &o.azimuth)}, {"drift", val(o.drift)}, {"rotate", val(o.rotate)}, {"axis", val(o.axis)},
 		{"mode", val(o.mode)}, {"outputs", val(o.outputs)}, {"spread", val(o.spread)}, {"angle", val(o.angle)},
-		{"remove-dc", val(o.removeDc)}, {"normalize", val(o.normalize)},
+		{"remove-dc", val(o.removeDc)}, {"normalize", val(o.normalize)}, {"antialias", val(o.antialias)},
 		{"frames", val(o.frames)}, {"fps", val(o.fps)}, {"cam", vec(&o.camAzimuth, &o.camElevation)},
 		{"cam-orbit", val(o.camOrbit)}, {"size", vec(&o.width, &o.height)}, {"view-rate", val(o.viewRate)}, {"out", val(o.out)},
 		{"panel", val(o.panel)}, {"rack", val(o.rack)}, {"panel-scale", val(o.panelScale)}, {"accent", val(o.accent)},
@@ -68,6 +69,8 @@ static Options parse(int argc, char** argv) {
 	}
 	if (!o.panel.empty() && o.panel != "light" && o.panel != "dark")
 		throw std::invalid_argument("panel must be light or dark");
+	if (o.antialias < 0 || o.antialias >= Antialias::LEVELS)
+		throw std::invalid_argument("antialias must be 0 to " + std::to_string(Antialias::LEVELS - 1));
 	if (o.outputs < 1 || o.outputs > OrbitVoice::MAX_OUTPUTS)
 		throw std::invalid_argument("outputs must be 1 to " + std::to_string(OrbitVoice::MAX_OUTPUTS));
 	return o;
@@ -161,6 +164,7 @@ int main(int argc, char** argv) {
 
 		std::vector<float> frames(length * channels);
 		OrbitVoice voice;
+		voice.setAntialias(Antialias::Level(o.antialias));
 		for (size_t i = 0; i < length; ++i)
 			voice.process(shapeAt(o, i / o.rate), field, o.freq, 1 / o.rate, o.removeDc, o.normalize, &frames[i * channels]);
 		writeWav(o.out + ".wav", frames, channels, int(o.rate));

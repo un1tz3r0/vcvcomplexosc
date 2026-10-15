@@ -5,7 +5,9 @@
 #include "Vec.hpp"
 
 // OpenSimplex2 (the fast variant) in 2D and 3D, after K.jpg's public-domain reference implementation.
-// Output lies roughly within [-1, 1]. noise3 uses the "ImproveXY" orientation: XY slices are isotropic,
+// Output lies roughly within [-1, 1]. noise3's kernel reaches a squared radius of 0.5 rather than the reference's 0.6:
+// it sums only the nearest point of each lattice copy and one neighbour, and at 0.6 other points come within reach
+// near cell boundaries, so the noise stepped there, clicking once a cycle wherever a ring crossed one. noise3 uses the "ImproveXY" orientation: XY slices are isotropic,
 // which leaves Z as the natural axis for evolving a planar slice over time.
 namespace cxo::os2 {
 
@@ -14,8 +16,8 @@ using u64 = uint64_t;
 constexpr u64 PRIME[3] = {0x5205402B9270C86Full, 0x598CD327003817B5ull, 0x5BCC226E9FA0BACBull};
 constexpr u64 HASH_MUL = 0x53A3F72DEEC546F5ull;
 constexpr u64 SEED_FLIP_3D = u64(-0x52D547B2E96ED629ll);
-constexpr float RSQ2 = 0.5f, RSQ3 = 0.6f;
-constexpr double NORM2 = 0.01001634121365712, NORM3 = 0.07969837668935331;
+constexpr float RSQ2 = 0.5f, RSQ3 = 0.5f;
+constexpr double NORM2 = 0.01001634121365712, NORM3 = 0.0304883; // NORM3: peak 1 over 4·10⁷ random points
 
 inline int floorInt(double x) {
 	const int i = int(x);

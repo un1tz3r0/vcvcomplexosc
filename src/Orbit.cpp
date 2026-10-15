@@ -21,6 +21,7 @@ struct Orbit : Module {
 	float perVolt[MODS];
 	int64_t seed = 0;
 	int accent = 0; // of cxo::Theme::ACCENTS
+	int antialias = cxo::Antialias::AUTO;
 	bool center = true, normalize = true, autoRotate = true, showStrip = true;
 
 	// Channel 0's state for the display, double-buffered so the UI thread never reads a half-written one.
@@ -82,6 +83,7 @@ struct Orbit : Module {
 
 		for (int c = 0; c < channels; ++c) {
 			Voice& v = voices[c];
+			v.setAntialias(cxo::Antialias::Level(antialias));
 			const auto mod = [&](int id) {
 				return double(params[id].getValue() + inputs[CV_INPUT + id].getPolyVoltage(c) * params[ATTEN_PARAM + id].getValue() * perVolt[id]);
 			};
@@ -132,6 +134,7 @@ struct Orbit : Module {
 			v = Voice();
 		seed = 0;
 		accent = 0;
+		antialias = cxo::Antialias::AUTO;
 		center = normalize = autoRotate = showStrip = true;
 	}
 
@@ -144,6 +147,7 @@ struct Orbit : Module {
 		json_t* root = json_object();
 		json_object_set_new(root, "seed", json_integer(seed));
 		json_object_set_new(root, "accent", json_integer(accent));
+		json_object_set_new(root, "antialias", json_integer(antialias));
 		json_object_set_new(root, "center", json_boolean(center));
 		json_object_set_new(root, "normalize", json_boolean(normalize));
 		json_object_set_new(root, "autoRotate", json_boolean(autoRotate));
@@ -156,6 +160,8 @@ struct Orbit : Module {
 			seed = json_integer_value(j);
 		if (json_t* j = json_object_get(root, "accent"))
 			accent = json_integer_value(j);
+		if (json_t* j = json_object_get(root, "antialias"))
+			antialias = std::clamp(int(json_integer_value(j)), 0, cxo::Antialias::LEVELS - 1);
 		for (auto [key, flag] : {std::pair{"center", &center}, {"normalize", &normalize}, {"autoRotate", &autoRotate}, {"showStrip", &showStrip}})
 			if (json_t* j = json_object_get(root, key))
 				*flag = json_boolean_value(j);
@@ -233,6 +239,7 @@ struct OrbitWidget : ModuleWidget {
 		menu->addChild(new MenuSeparator);
 		menu->addChild(createBoolPtrMenuItem("Remove DC offset", "", &module->center));
 		menu->addChild(createBoolPtrMenuItem("Normalize level", "", &module->normalize));
+		menu->addChild(createIndexPtrSubmenuItem("Anti-aliasing", std::vector<std::string>(std::begin(cxo::Antialias::NAMES), std::end(cxo::Antialias::NAMES)), &module->antialias));
 		menu->addChild(createMenuItem("New noise seed", string::f("%lld", (long long)module->seed), [=] { module->seed = random::u32(); }));
 		menu->addChild(new MenuSeparator);
 		menu->addChild(createMenuLabel("Display"));
