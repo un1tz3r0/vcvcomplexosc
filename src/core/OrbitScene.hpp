@@ -16,6 +16,7 @@ struct OrbitState {
 	Ring::Axis axis = Ring::NORMAL;
 	StockField field;
 	double hz = C4, phase = 0;
+	Vec3 velocity; // the center's, in units per second
 	int channels = 1;
 	bool audio = true;
 	std::array<float, orbit::MODS> values = defaults(); // each knob with its CV, as the display shows it: Hz, degrees, percent
@@ -73,7 +74,7 @@ struct OrbitScene {
 		const std::vector<Trace> traces = s.shape.traces(s.phase);
 		const Ring& ring = s.shape.ring;
 		const Camera cam = Camera::orbit(ring.center, 2.35 * reach(ring.center, traces), camAzimuth, camElevation, viewW, h, Ring::orient(s.pitch, s.roll));
-		view(out, cam, s.field, ring, traces);
+		view(out, cam, s.field, ring, traces, s.velocity);
 
 		// Each panel below occludes whatever of the view spills into it, then draws its divider.
 		const Rgba rule = theme.guide * 0.8f;

@@ -38,7 +38,7 @@ Param ids changed from phase 3 and patches made before it load with wrong values
 
 ## Orbit's display (phase 5)
 
-The floor becomes a mesh drawn back to front, quad by quad, so crossing grid lines occlude properly. Hue shifts are quantized into a few bands so NanoVG can still batch strokes. Velocity arrows on the corner axes show the center's motion, smoothed so audio-rate CV doesn't strobe them.
+The floor is a disc of square cells, cut into rows along the screen's horizontal and painted far to near. Each row is filled down to a skirt below the plane, hiding what it stands in front of, and the grid's columns between it and the row behind are drawn just before it, so one fill per row still occludes the whole mesh. A hue shift bins heights into 4 to 8 bands, so each row's lines go out as one batch per band instead of a stroke per segment. At the module's size, the default grid with a subtle shift costs about twice the draw calls of phase 4's rows for the same number of vertices. The velocity arrows show the center's velocity low-passed at 4 Hz, which averages audio-rate CV out to its net motion.
 
 ## Field engine and the Field expander (phase 6)
 

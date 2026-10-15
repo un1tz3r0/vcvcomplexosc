@@ -37,11 +37,32 @@ struct NvgPainter : cxo::Painter {
 			nvgStroke(vg);
 		}
 	}
-	void dot(cxo::Vec2f p, float radius, cxo::Rgba c) override {
+	void segments(const std::vector<cxo::Vec2f>& pts, cxo::Rgba c, float width) override {
+		if (pts.size() < 2)
+			return;
+		nvgGlobalCompositeBlendFunc(vg, NVG_SRC_ALPHA, NVG_ONE);
+		nvgBeginPath(vg);
+		for (size_t i = 0; i + 1 < pts.size(); i += 2) {
+			nvgMoveTo(vg, pts[i].x, pts[i].y);
+			nvgLineTo(vg, pts[i + 1].x, pts[i + 1].y);
+		}
+		nvgLineCap(vg, NVG_ROUND);
+		for (const cxo::GlowPass& g : cxo::GLOW) {
+			nvgStrokeWidth(vg, width * g.width);
+			nvgStrokeColor(vg, nvg(c, g.alpha));
+			nvgStroke(vg);
+		}
+		nvgLineCap(vg, NVG_BUTT);
+	}
+	void dot(cxo::Vec2f p, float radius, cxo::Rgba c) override { dots({p}, radius, c); }
+	void dots(const std::vector<cxo::Vec2f>& centers, float radius, cxo::Rgba c) override {
+		if (centers.empty())
+			return;
 		nvgGlobalCompositeBlendFunc(vg, NVG_SRC_ALPHA, NVG_ONE);
 		for (const cxo::GlowPass& g : cxo::GLOW) {
 			nvgBeginPath(vg);
-			nvgCircle(vg, p.x, p.y, radius * g.width);
+			for (const cxo::Vec2f& p : centers)
+				nvgCircle(vg, p.x, p.y, radius * g.width);
 			nvgFillColor(vg, nvg(c, g.alpha));
 			nvgFill(vg);
 		}

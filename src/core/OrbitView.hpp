@@ -11,45 +11,32 @@ namespace cxo {
 // The field drawn as a relief over the plane of a base ring, with every traced ring lifted off its own plane by what it reads.
 // A lifted ring is one cycle of its output wrapped around the ring, and each probe's stem is its present value.
 struct OrbitView {
-	float rowSpacing = 5;  // pixels between relief rows at the near edge, roughly
-	int cols = 64, ringSegments = 128;
+	// How the relief's floor is drawn, and the context menu's names for its settings.
+	enum Floor { ROWS, GRID, DOTS, FLOORS };
+	static constexpr const char* FLOOR_NAMES[FLOORS] = {"Rows", "Grid", "Dots"};
+	static constexpr const char* DENSITY_NAMES[] = {"Coarse", "Normal", "Fine"};
+	static constexpr const char* BRIGHTNESS_NAMES[] = {"Dim", "Normal", "Bright", "Brightest"};
+	static constexpr const char* HUE_NAMES[] = {"Off", "Subtle", "Medium", "Strong"};
+	static constexpr int DENSITIES = std::size(DENSITY_NAMES), BRIGHTNESSES = std::size(BRIGHTNESS_NAMES), HUES = std::size(HUE_NAMES);
+
+	Floor floor = GRID;
+	int density = 1, brightness = 2, hue = 1; // indices into the names above
+	int ringSegments = 128;
 	double extent = 1.4;  // radius of the relief, in units of reach()
 	double relief = 0.28; // height of a unit field value, in units of reach()
 	double trail = 0.08;  // length of each probe's fading tail, in cycles
 	Theme theme;
 
+	// `velocity` is the center's, in units per second, shown as arrows on the corner axes.
 	template <class Field>
-	void operator()(Painter& out, const Camera& cam, const Field& field, const Ring& base, const std::vector<Trace>& traces) const {
+	void operator()(Painter& out, const Camera& cam, const Field& field, const Ring& base, const std::vector<Trace>& traces, Vec3 velocity = {}) const {
 		const float px = cam.height / 130;
-		const int rows = std::clamp(int(cam.height / rowSpacing), 12, 32);
 		const Vec3 c = base.center, n = base.basis.z;
 		const double r = std::max(reach(c, traces), 1e-3), half = extent * r, lift = relief * r;
 		const auto liftedOff = [&](Vec3 p, Vec3 normal) { return p + normal * (lift * field(p)); };
-		const auto lifted = [&](Vec3 p) { return liftedOff(p, n); };
 		const auto seg = [&](Vec3 p, Vec3 q, Rgba color, float w) { out.line(cam.project(p), cam.project(q), color, w * px); };
 
-		// The relief is a disc cut into rows along the screen's horizontal, painted far to near, each one filled
-		// down to a skirt on the far side of the plane so it hides the rows behind it.
-		Vec3 a = cam.right - n * dot(cam.right, n);
-		a = length(a) > 1e-3 ? normalize(a) : base.basis.x;
-		Vec3 b = cross(n, a);
-		if (dot(b, cam.forward) < 0)
-			b = -b;
-		const Vec3 skirt = n * (dot(cam.eye - c, n) >= 0 ? -1.2 * lift : 1.2 * lift);
-		std::vector<Vec2f> ridge, body;
-		for (int i = rows - 1; i >= 0; --i) {
-			const double v = half * ((2.0 * i + 1) / rows - 1), w = std::sqrt(std::max(0.0, half * half - v * v));
-			ridge.clear();
-			body.clear();
-			for (int j = 0; j <= cols; ++j) {
-				const Vec3 p = c + a * (w * (2.0 * j / cols - 1)) + b * v;
-				ridge.push_back(cam.project(lifted(p)));
-				body.push_back(cam.project(p + skirt));
-			}
-			body.insert(body.begin(), ridge.rbegin(), ridge.rend());
-			out.fill(body, theme.glass);
-			out.stroke(ridge, theme.field * float(1 - 0.75 * i / (rows - 1)), 1.1f * px);
-		}
+		paintFloor(out, cam, field, c, n, half, lift);
 
 		seg(c - base.basis.x * base.major, c + base.basis.x * base.major, theme.guide, 0.8f);
 		seg(c - base.basis.y * base.minor, c + base.basis.y * base.minor, theme.guide, 0.8f);
@@ -81,7 +68,7 @@ struct OrbitView {
 		}
 
 		// World axes in the corner, with the ring's normal and major axis among them.
-		const float g = 10 * px;
+		const float g = 13 * px;
 		const Vec2f o{8 * px + g, cam.height - 6 * px - g};
 		const auto arm = [&](Vec3 d, Rgba color, const char* name) {
 			const Vec2f e = cam.projectDir(d);
@@ -94,6 +81,134 @@ struct OrbitView {
 		arm({0, 0, 1}, theme.guide * 2.2f, "Z");
 		arm(base.basis.x, theme.ring * 0.6f, nullptr);
 		arm(n, theme.ring, nullptr);
+
+		// The center's velocity along each world axis as an arrow over that axis, squashed so drift at full speed
+		// (1 unit/s) reaches a little past the axis.
+		const Vec3 axes[] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+		const double speeds[] = {velocity.x, velocity.y, velocity.z};
+		for (int k = 0; k < 3; ++k) {
+			const float len = float(1.6 * std::tanh(std::abs(speeds[k])));
+			if (len < 0.03f)
+				continue;
+			const Vec2f e = cam.projectDir(speeds[k] < 0 ? -axes[k] : axes[k]), tip{o.x + e.x * g * len, o.y + e.y * g * len};
+			out.line(o, tip, theme.probe * 0.9f, 1.4f * px);
+			const float el = std::hypot(e.x, e.y);
+			if (el < 0.15f)
+				continue;
+			const Vec2f d{e.x / el, e.y / el}, side{-d.y, d.x};
+			const float head = 3 * px;
+			out.stroke({{tip.x - d.x * head + side.x * head * 0.6f, tip.y - d.y * head + side.y * head * 0.6f}, tip,
+			            {tip.x - d.x * head - side.x * head * 0.6f, tip.y - d.y * head - side.y * head * 0.6f}},
+			           theme.probe * 0.9f, 1.2f * px);
+		}
+	}
+
+	// The relief: a disc of square cells in the plane through `c` normal to `n`, lifted by the field, cut into rows
+	// along the screen's horizontal and painted far to near. Each row is filled down to a skirt on the far side of the
+	// plane so it hides what it stands in front of, the grid's columns between it and the row behind included.
+	// With a hue shift, heights are binned into bands so each band's lines go out in one batch.
+	template <class Field>
+	void paintFloor(Painter& out, const Camera& cam, const Field& field, Vec3 c, Vec3 n, double half, double lift) const {
+		constexpr float SPACING[DENSITIES] = {7.5f, 5, 3.5f}, BRIGHT[BRIGHTNESSES] = {0.6f, 0.85f, 1.15f, 1.5f};
+		constexpr float HUE_SPAN[HUES] = {0, 0.35f, 0.8f, 1.6f}; // radians at either extreme of the floor's range
+		constexpr int BANDS[HUES] = {1, 4, 6, 8}, MAX_BANDS = 8;     // fewer for a subtler shift, since each costs a draw per row
+		constexpr int MIN_ROWS[DENSITIES] = {8, 12, 16}, MAX_ROWS[DENSITIES] = {20, 32, 44}, SUB = 3;
+		const float px = cam.height / 130;
+		const int rows = std::clamp(int(cam.height / SPACING[density]), MIN_ROWS[density], MAX_ROWS[density]), cols = rows * SUB;
+		const int bands = BANDS[hue];
+
+		Vec3 a = cam.right - n * dot(cam.right, n);
+		a = length(a) > 1e-3 ? normalize(a) : cross(n, std::abs(n.z) < 0.9 ? Vec3{0, 0, 1} : Vec3{1, 0, 0});
+		Vec3 b = cross(n, a);
+		if (dot(b, cam.forward) < 0)
+			b = -b;
+		const Vec3 skirt = n * (dot(cam.eye - c, n) >= 0 ? -1.2 * lift : 1.2 * lift);
+
+		// Each row's samples run across its chord: the chord's ends, and between them the lattice points u = -half + j·step.
+		// Grid columns and dots sit on every SUB-th lattice point, so the cells come out square.
+		struct Row {
+			std::vector<Vec2f> ridge, base;
+			std::vector<float> value;
+			std::vector<int> lattice; // each sample's j, or -1 for a chord end
+		};
+		std::vector<Row> grid(rows);
+		const double step = 2 * half / cols;
+		float lo = 1e9f, hi = -1e9f;
+		for (int i = 0; i < rows; ++i) {
+			Row& row = grid[i];
+			const double v = half * ((2.0 * i + 1) / rows - 1), w = std::sqrt(std::max(0.0, half * half - v * v));
+			const auto sample = [&](double u, int j) {
+				const Vec3 p = c + a * u + b * v;
+				const float f = field(p);
+				row.ridge.push_back(cam.project(p + n * (lift * f)));
+				row.base.push_back(cam.project(p + skirt));
+				row.value.push_back(f);
+				row.lattice.push_back(j);
+				lo = std::min(lo, f), hi = std::max(hi, f);
+			};
+			sample(-w, -1);
+			for (int j = int(std::floor((half - w) / step)) + 1; -half + j * step < w; ++j)
+				sample(-half + j * step, j);
+			sample(w, -1);
+		}
+
+		Rgba palette[MAX_BANDS];
+		for (int k = 0; k < bands; ++k)
+			palette[k] = bands > 1 ? hueTurned(theme.field, HUE_SPAN[hue] * (2.f * k / (bands - 1) - 1)) : theme.field;
+		const float mid = 0.5f * (lo + hi), range = std::max(0.5f * (hi - lo), 1e-4f);
+		const auto band = [&](float f) { return bands > 1 ? std::clamp(int(std::lround((f - mid) / range * 0.5f * (bands - 1) + 0.5f * (bands - 1))), 0, bands - 1) : 0; };
+		const auto fade = [&](double i) { return BRIGHT[brightness] * float(1 - 0.55 * i / (rows - 1)); };
+
+		std::vector<Vec2f> batch[MAX_BANDS], body;
+		const auto flush = [&](float alpha, float width, bool asDots) {
+			for (int k = 0; k < bands; ++k) {
+				if (asDots)
+					out.dots(batch[k], width, palette[k] * alpha);
+				else
+					out.segments(batch[k], palette[k] * alpha, width);
+				batch[k].clear();
+			}
+		};
+		const Row* behind = nullptr;
+		for (int i = rows - 1; i >= 0; --i) {
+			const Row& row = grid[i];
+			if (floor == GRID && behind) {
+				for (size_t s = 0, t = 0; s < row.lattice.size(); ++s) {
+					const int j = row.lattice[s];
+					if (j < 0 || j % SUB)
+						continue;
+					while (t < behind->lattice.size() && (behind->lattice[t] < 0 ? -1 : behind->lattice[t]) < j)
+						++t;
+					if (t < behind->lattice.size() && behind->lattice[t] == j) {
+						std::vector<Vec2f>& into = batch[band(0.5f * (row.value[s] + behind->value[t]))];
+						into.push_back(behind->ridge[t]);
+						into.push_back(row.ridge[s]);
+					}
+				}
+				flush(fade(i + 0.5), 0.9f * px, false);
+			}
+
+			body.assign(row.ridge.rbegin(), row.ridge.rend());
+			body.insert(body.end(), row.base.begin(), row.base.end());
+			out.fill(body, theme.glass);
+
+			if (floor == DOTS) {
+				for (size_t s = 0; s < row.lattice.size(); ++s)
+					if (row.lattice[s] >= 0 && row.lattice[s] % SUB == 0)
+						batch[band(row.value[s])].push_back(row.ridge[s]);
+				flush(fade(i), 1.0f * px, true);
+			} else if (bands == 1)
+				out.stroke(row.ridge, theme.field * fade(i), 1.1f * px);
+			else {
+				for (size_t s = 0; s + 1 < row.ridge.size(); ++s) {
+					std::vector<Vec2f>& into = batch[band(0.5f * (row.value[s] + row.value[s + 1]))];
+					into.push_back(row.ridge[s]);
+					into.push_back(row.ridge[s + 1]);
+				}
+				flush(fade(i), 1.1f * px, false);
+			}
+			behind = &row;
+		}
 	}
 
 	// One cycle of both outputs as read straight from the field, N points each with the last back at phase 0.
