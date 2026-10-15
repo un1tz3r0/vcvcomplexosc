@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -99,47 +100,42 @@ inline float noise2(int64_t seed, double x, double y) {
 }
 
 // Sums the nearest and second-nearest points of two interleaved cubic lattices (together a BCC lattice).
+// Branch-free: a ring's samples land in unpredictable cells, and mispredicted branches cost more than computing
+// every point and weighting the out-of-reach ones by zero.
 inline float noise3(int64_t seed, double x, double y, double z) {
 	constexpr double R3 = 0.577350269189626, ORTH = -0.21132486540518713;
 	const double xy = x + y, s2 = xy * ORTH, zz = z * R3;
 	const double r[3] = {x + s2 + zz, y + s2 + zz, xy * -R3 + zz};
 
-	float d[3];
-	int sgn[3];
+	float d[3], sgn[3];
 	u64 hp[3];
 	for (int i = 0; i < 3; ++i) {
-		const int b = roundInt(r[i]);
+		const double b = std::floor(r[i] + 0.5);
 		d[i] = float(r[i] - b);
-		sgn[i] = d[i] >= 0 ? 1 : -1;
-		hp[i] = latticePrime(b, i);
+		sgn[i] = d[i] >= 0 ? 1.f : -1.f;
+		hp[i] = latticePrime(int(b), i);
 	}
 
 	u64 sd = u64(seed);
 	float value = 0;
 	for (int copy = 0; copy < 2; ++copy) {
 		const float a = RSQ3 - (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-		if (a > 0)
-			value += pow4(a) * grad3(sd, hp, d);
+		value += pow4(std::max(a, 0.f)) * grad3(sd, hp, d);
 
 		// The second-nearest point is one step along the axis where the offset is largest.
-		int m = 0;
-		for (int i = 1; i < 3; ++i)
-			if (std::abs(d[i]) > std::abs(d[m]))
-				m = i;
-		const float b = a + 2 * std::abs(d[m]) - 1;
-		if (b > 0) {
-			u64 hq[3] = {hp[0], hp[1], hp[2]};
-			float dq[3] = {d[0], d[1], d[2]};
-			hq[m] += u64(int64_t(sgn[m])) * PRIME[m];
-			dq[m] -= float(sgn[m]);
-			value += pow4(b) * grad3(sd, hq, dq);
-		}
+		const float a0 = std::abs(d[0]), a1 = std::abs(d[1]), a2 = std::abs(d[2]);
+		const int m = a1 > a0 ? (a2 > a1 ? 2 : 1) : (a2 > a0 ? 2 : 0);
+		const float b = a + 2 * std::max({a0, a1, a2}) - 1;
+		u64 hq[3] = {hp[0], hp[1], hp[2]};
+		float dq[3] = {d[0], d[1], d[2]};
+		hq[m] += u64(int64_t(sgn[m])) * PRIME[m];
+		dq[m] -= sgn[m];
+		value += pow4(std::max(b, 0.f)) * grad3(sd, hq, dq);
 
 		// Shift to the other lattice, offset by half a cell toward the sample.
 		for (int i = 0; i < 3; ++i) {
-			if (sgn[i] > 0)
-				hp[i] += PRIME[i];
-			d[i] -= 0.5f * float(sgn[i]);
+			hp[i] += sgn[i] > 0 ? PRIME[i] : 0;
+			d[i] -= 0.5f * sgn[i];
 			sgn[i] = -sgn[i];
 		}
 		sd ^= SEED_FLIP_3D;

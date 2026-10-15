@@ -13,8 +13,9 @@ struct Ring {
 	Mat3 basis; // x: toward phase 0, y: toward phase 1/4, z: normal
 	double major = 1, minor = 1; // radii along basis x and y; "major" may be the shorter one
 
+	// Trig in single precision once the phase is wrapped, which is plenty for a point on a ring and far cheaper.
 	Vec3 at(double phase) const {
-		const double a = TAU * phase;
+		const float a = float(TAU * (phase - std::floor(phase)));
 		return center + basis.x * (major * std::cos(a)) + basis.y * (minor * std::sin(a));
 	}
 

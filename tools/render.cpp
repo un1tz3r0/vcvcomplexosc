@@ -20,7 +20,10 @@ struct Options {
 	double freq = 110, seconds = 2, rate = 48000;
 	std::string field = "simplex3"; // any of StockField::NAMES, in any case
 	int64_t seed = 0;
-	int octaves = 1;
+	std::string fractal = "fbm", distort = "none", shaper = "off"; // any of StockField's names, in any case
+	float detail = 0, roughness = 0.5f, lacunarity = 2, warp = 0, tilt = 0, warpScale = 1, warpDrift = 0, distortion = 0, drive = 1;
+	std::string cells = "smooth", metric = "euclidean", lattice = "cubic"; // smooth, value, f1, f2 or edge; then Cells' names
+	float jitter = 1, smoothness = 0.25f;
 	Vec3 center;
 	double radius = 1, eccentricity = 0.2, pitch = 0, roll = 0;
 	double drift = 0;               // center travel along Z, units per second
@@ -54,7 +57,11 @@ static Options parse(int argc, char** argv) {
 	};
 	const std::map<std::string, std::function<void(const std::string&)>> set{
 		{"freq", val(o.freq)}, {"seconds", val(o.seconds)}, {"rate", val(o.rate)},
-		{"field", val(o.field)}, {"seed", val(o.seed)}, {"octaves", val(o.octaves)},
+		{"field", val(o.field)}, {"seed", val(o.seed)},
+		{"fractal", val(o.fractal)}, {"detail", val(o.detail)}, {"roughness", val(o.roughness)}, {"lacunarity", val(o.lacunarity)},
+		{"warp", val(o.warp)}, {"tilt", val(o.tilt)}, {"warp-scale", val(o.warpScale)}, {"warp-drift", val(o.warpDrift)},
+		{"distort", val(o.distort)}, {"distortion", val(o.distortion)}, {"shaper", val(o.shaper)}, {"drive", val(o.drive)},
+		{"cells", val(o.cells)}, {"metric", val(o.metric)}, {"lattice", val(o.lattice)}, {"jitter", val(o.jitter)}, {"smoothness", val(o.smoothness)},
 		{"center", vec(&o.center.x, &o.center.y, &o.center.z)}, {"radius", val(o.radius)},
 		{"eccentricity", val(o.eccentricity)}, {"orient", vec(&o.pitch, &o.roll)}, {"drift", val(o.drift)}, {"rotate", val(o.rotate)}, {"axis", val(o.axis)},
 		{"mode", val(o.mode)}, {"spread", val(o.spread)}, {"side", val(o.side)}, {"equal-xy", val(o.equalXY)},
@@ -98,7 +105,24 @@ static StockField makeField(const Options& o) {
 	StockField f;
 	f.kind = StockField::Kind(lookup(StockField::NAMES, o.field, "field"));
 	f.seed = o.seed;
-	f.octaves = o.octaves;
+	f.fractal = StockField::Fractal(lookup(StockField::FRACTAL_NAMES, o.fractal, "fractal"));
+	f.detail = std::clamp(o.detail, 0.f, float(StockField::MAX_OCTAVES - 1));
+	f.roughness = o.roughness, f.lacunarity = o.lacunarity;
+	f.warp = o.warp, f.tilt = o.tilt, f.warpScale = o.warpScale;
+	f.distort = StockField::Distort(lookup(StockField::DISTORT_NAMES, o.distort, "distortion"));
+	f.distortion = o.distortion;
+	f.shaper = StockField::Shaper(lookup(StockField::SHAPER_NAMES, o.shaper, "shaper"));
+	f.drive = o.drive;
+	static constexpr const char* FEATURES[Cells::FEATURES] = {"f1", "f2", "edge", "smooth", "value"};
+	f.cells.feature = Cells::Feature(lookup(FEATURES, o.cells, "cell feature"));
+	f.cells.metric = Cells::Metric(lookup(Cells::METRIC_NAMES, o.metric, "metric"));
+	f.cells.lattice = Cells::Lattice(o.lattice == "bcc" ? Cells::BCC : lookup(Cells::LATTICE_NAMES, o.lattice, "lattice"));
+	f.cells.jitter = o.jitter, f.cells.smoothness = o.smoothness;
+	return f;
+}
+
+static StockField fieldAt(const Options& o, StockField f, double t) {
+	f.warpDrift = float(o.warpDrift * t);
 	return f;
 }
 
@@ -126,8 +150,8 @@ static float turn(const OrbitState& s, int param) {
 		return std::clamp(float((raw - m.min) / (m.max - m.min)), 0.f, 1.f);
 	}
 	switch (param) {
-		case FIELD_PARAM: return s.field.kind / 2.f;
-		case OCTAVES_PARAM: return (s.field.octaves - 1) / 3.f;
+		case FIELD_PARAM: return s.field.kind / float(StockField::KINDS - 1);
+		case OCTAVES_PARAM: return (s.field.octaves() - 1) / 3.f;
 		case MODE_PARAM: return s.shape.mode / float(OrbitShape::MODES - 1);
 		case AXIS_PARAM: return s.axis / float(Ring::AXES - 1);
 		case RANGE_PARAM: return s.audio;
@@ -174,7 +198,7 @@ int main(int argc, char** argv) {
 		OrbitVoice voice;
 		voice.setAntialias(Antialias::Level(o.antialias));
 		for (size_t i = 0; i < length; ++i)
-			voice.process(shapeAt(o, i / o.rate), field, o.freq, 1 / o.rate, o.removeDc, o.normalize, &frames[i * channels]);
+			voice.process(shapeAt(o, i / o.rate), fieldAt(o, field, i / o.rate), o.freq, 1 / o.rate, o.removeDc, o.normalize, &frames[i * channels]);
 		writeWav(o.out + ".wav", frames, channels, int(o.rate));
 
 		for (int c = 0; c < channels; ++c) {
@@ -204,7 +228,7 @@ int main(int argc, char** argv) {
 		for (int k = 0; k < o.frames; ++k) {
 			const double t = k / o.fps;
 			scene.camAzimuth = (o.camAzimuth + o.camOrbit * t) * PI / 180;
-			const OrbitState state = stateAt(o, field, t);
+			const OrbitState state = stateAt(o, fieldAt(o, field, t), t);
 			SvgPainter svg(o.width, o.height, scene.view.theme.glass);
 			scene.paint(svg, state);
 			char name[32];

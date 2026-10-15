@@ -31,9 +31,11 @@ struct Decimator {
 			history[at] = history[at + taps] = in[i];
 			at = (at + 1) % taps;
 		}
+		// The kernel is symmetric, so each coefficient weighs both samples it applies to at once.
+		const float* h = history + at;
 		float y = 0;
-		for (int i = 0; i < taps; ++i)
-			y += kernel[i] * history[at + i];
+		for (int i = 0, half = taps / 2; i < half; ++i)
+			y += kernel[i] * (h[i] + h[taps - 1 - i]);
 		return y;
 	}
 };

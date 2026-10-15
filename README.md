@@ -6,7 +6,7 @@ Oscillators that read their waveforms off 3D fields by sweeping rings through th
 
 ![Orbit's panel](docs/orbit-panel.png)
 
-Orbit sweeps an elliptical ring through a 3D field (OpenSimplex2 in 3D or 2D, or a gyroid, with up to 4 fractal octaves) and outputs what the ring reads.
+Orbit sweeps an elliptical ring through a 3D field (OpenSimplex2 in 3D or 2D, a gyroid, or cellular noise, with up to 4 fractal octaves) and outputs what the ring reads.
 
 - **Ring controls.** Center X/Y/Z, RADIUS, ECCENTRIC, PITCH and ROLL each have a knob, an attenuverter and a CV input. A full ±5 V CV sweep covers the knob's whole range. The radii are RADIUS·(1 ± eccentricity), so the ring stretches into an ellipse one way for positive values and the other way for negative ones, and collapses to a line at ±1. PITCH turns the ring about world X and ROLL then turns it about world Y. No two knobs do the same thing (see `DESIGN.md`).
 - **Drift and rotation.** DRIFT moves the ring through the field along Z over time, and ROTATE turns it at up to one revolution per second about the AXIS selector's choice: the ring's normal (a spin within its plane), its major or minor axis (a tumble), or world X, Y or Z through its center. Both keep the timbre evolving.
@@ -45,7 +45,7 @@ make -C tools                     # the renderer
 ## Renderer
 
 ```sh
-tools/render --out demo --orient 35,20 --radius 1.1 --eccentricity 0.3 --octaves 2 --mode fan --spread 0.6 --rotate 0.25 --axis major
+tools/render --out demo --orient 35,20 --radius 1.1 --eccentricity 0.3 --detail 1 --mode fan --spread 0.6 --rotate 0.25 --axis major
 ```
 
 This writes `demo.wav` (32-bit float, A and B as two channels, about ±1), `demo-scope.svg` (two cycles) and `demo-view.svg`, which is the module's display drawn by the same code. With `--frames N` it writes `demo-view-0000.svg` and onward for animation. With `--panel light` or `--panel dark` it also writes `demo-panel.svg`, a mockup of the whole panel with its knobs set to the options. Pass `--rack` a Rack source or SDK folder to draw its jacks, trimpots and screws from its own artwork.
@@ -53,8 +53,13 @@ This writes `demo.wav` (32-bit float, A and B as two channels, about ±1), `demo
 | Option | Default | Meaning |
 |---|---|---|
 | `--freq` `--seconds` `--rate` | 110, 2, 48000 | Audio pitch, length and sample rate |
-| `--field` | simplex3 | `simplex2`, `simplex3` or `gyroid` |
-| `--seed` `--octaves` | 0, 1 | Noise seed and fractal octaves |
+| `--field` | simplex3 | `simplex2`, `simplex3`, `gyroid` or `cellular` |
+| `--seed` | 0 | Noise seed |
+| `--fractal` `--detail` `--roughness` `--lacunarity` | fbm, 0, 0.5, 2 | Fractal type (`fbm`, `ridged`, `hetero` or `hybrid`), octaves above the first (0 to 7, fractions fade the top one in), each octave's amplitude and frequency relative to the one below |
+| `--cells` `--metric` `--lattice` `--jitter` `--smoothness` | smooth, euclidean, cubic, 1, 0.25 | Cellular feature (`f1`, `f2`, `edge`, `smooth` or `value`), distance metric (`euclidean`, `manhattan` or `chebyshev`), lattice (`cubic` or `bcc`), jitter 0 to 1, and smoothness up to 0.3 |
+| `--warp` `--tilt` `--warp-scale` `--warp-drift` | 0, 0, 1, 0 | The second noise: how far it displaces space, how much it varies the roughness, its frequency, and its drift in units per second |
+| `--distort` `--distortion` | none, 0 | Domain distortion (`twist`, `swirl`, `fold` or `ripple`) and its amount, 0 to 1 |
+| `--shaper` `--drive` | off, 1 | Value shaper (`fold`, `sine`, `clip` or `rectify`) and its drive |
 | `--center x,y,z` | 0,0,0 | Ring center |
 | `--radius` `--eccentricity` | 1, 0.2 | Mean radius and eccentricity, −1 to 1 |
 | `--orient pitch,roll` | 0,0 | Ring orientation in degrees |

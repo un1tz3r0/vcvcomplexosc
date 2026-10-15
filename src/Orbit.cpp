@@ -45,7 +45,7 @@ struct Orbit : Module {
 			configInput(CV_INPUT + i, i == FREQ_PARAM ? "Exponential FM" : std::string(m.name) + " CV");
 			perVolt[i] = i == FREQ_PARAM ? 1.f : (m.max - m.min) / 10.f;
 		}
-		configSwitch(FIELD_PARAM, 0.f, 2.f, 0.f, "Field", {"Simplex 3D", "Simplex 2D", "Gyroid"});
+		configSwitch(FIELD_PARAM, 0.f, 3.f, 0.f, "Field", {"Simplex 3D", "Simplex 2D", "Gyroid", "Cellular"});
 		configParam(OCTAVES_PARAM, 1.f, 4.f, 1.f, "Octaves")->snapEnabled = true;
 		configSwitch(MODE_PARAM, 0.f, 4.f, 0.f, "Spread mode",
 		             {"Phase: B reads the same ring further ahead", "Pinch: B's ring is scaled about phase 0", "Stack: B's ring is shifted along the normal",
@@ -78,7 +78,7 @@ struct Orbit : Module {
 
 		cxo::StockField field;
 		field.kind = cxo::StockField::Kind(int(params[FIELD_PARAM].getValue()));
-		field.octaves = int(params[OCTAVES_PARAM].getValue());
+		field.detail = params[OCTAVES_PARAM].getValue() - 1;
 		field.seed = seed;
 		const auto mode = cxo::OrbitShape::Mode(int(params[MODE_PARAM].getValue()));
 		const auto axis = cxo::Ring::Axis(int(params[AXIS_PARAM].getValue()));
