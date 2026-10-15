@@ -1,0 +1,80 @@
+# Builds the plugin for every platform VCV Rack 2 supports.
+#
+# Each platform builds natively on a GitHub-hosted runner with the official Rack SDK for that OS/arch
+# (the same SDK that plugin.mk, included by the Makefile through RACK_DIR, comes from). This avoids the
+# macOS SDK licensing/setup the rack-plugin-toolchain docker image needs for mac targets, and every
+# platform uses one identical recipe: `make dist`.
+#
+# The release workflow looks this workflow up by the file name ci.yml, so do not rename it.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Rack 2 SDK; plugin.json's version must start with 2 to load in Rack 2.
+  RACK_SDK_VERSION: 2.6.4
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: lin-x64,   os: ubuntu-22.04 }
+          - { platform: mac-x64,   os: macos-15-intel }
+          - { platform: mac-arm64, os: macos-14 }
+          - { platform: win-x64,   os: windows-2022 }
+    defaults:
+      run:
+        shell: ${{ matrix.platform == 'win-x64' && 'msys2 {0}' || 'bash' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2 (Windows)
+        if: matrix.platform == 'win-x64'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make zip unzip curl jq git
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-jq
+
+      - name: Install dependencies (Linux)
+        if: matrix.platform == 'lin-x64'
+        run: sudo apt-get update && sudo apt-get install -y jq zip unzip curl make
+
+      - name: Install dependencies (macOS)
+        if: startsWith(matrix.platform, 'mac-')
+        run: brew install jq zip
+
+      - name: Download Rack SDK
+        run: |
+          curl -fsSL -o sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${RACK_SDK_VERSION}-${{ matrix.platform }}.zip"
+          unzip -q sdk.zip -d "$RUNNER_TEMP/sdk"
+          echo "RACK_DIR=$(cd "$RUNNER_TEMP/sdk/Rack-SDK" && pwd)" >> "$GITHUB_ENV"
+
+      - name: Build and package
+        run: make dist -j4 RACK_DIR="$RACK_DIR"
+
+      - name: Upload plugin package
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-${{ matrix.platform }}
+          path: dist/*.vcvplugin
+          if-no-files-found: error
+
+  tools:
+    name: Build tools/render
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build render tool
+        run: make -C tools

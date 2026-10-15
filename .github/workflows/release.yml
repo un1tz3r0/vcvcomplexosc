@@ -1,0 +1,61 @@
+# When a PR labelled `release` is merged, publish the .vcvplugin packages that CI built for the PR head.
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Read version
+        run: |
+          version=$(jq -r .version plugin.json)
+          if [ -z "$version" ] || [ "$version" = null ]; then
+            echo "::error::No version in plugin.json"; exit 1
+          fi
+          echo "TAG=v$version" >> "$GITHUB_ENV"
+
+      - name: Find successful CI run for the PR head
+        run: |
+          run_id=$(gh run list --workflow ci.yml --commit "$HEAD_SHA" --status success --limit 1 \
+            --json databaseId --jq '.[0].databaseId // empty')
+          if [ -z "$run_id" ]; then
+            echo "::error::No successful ci.yml run found for PR head commit $HEAD_SHA. Make sure CI passed before merging."
+            exit 1
+          fi
+          echo "RUN_ID=$run_id" >> "$GITHUB_ENV"
+
+      - name: Download artifacts
+        run: gh run download "$RUN_ID" --dir artifacts --pattern 'plugin-*'
+
+      - name: Create release
+        run: |
+          files=$(find artifacts -name '*.vcvplugin')
+          if [ -z "$files" ]; then
+            echo "::error::CI run $RUN_ID has no .vcvplugin artifacts"; exit 1
+          fi
+          printf '%s\n' "$PR_BODY" > notes.md
+          printf '\nBuilt by CI run %s from PR #%s.\n' "$RUN_ID" "$PR_NUMBER" >> notes.md
+          # shellcheck disable=SC2086
+          gh release create "$TAG" $files \
+            --target "$MERGE_SHA" \
+            --title "$TAG: $PR_TITLE" \
+            --notes-file notes.md
