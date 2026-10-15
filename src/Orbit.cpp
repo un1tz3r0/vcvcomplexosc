@@ -1,4 +1,5 @@
 #include <atomic>
+#include <tuple>
 #include "plugin.hpp"
 #include "OledDisplay.hpp"
 #include "PanelArt.hpp"
@@ -22,11 +23,13 @@ struct Orbit : Module {
 	int64_t seed = 0;
 	int accent = 0; // of cxo::Theme::ACCENTS
 	int antialias = cxo::Antialias::AUTO;
-	int side = cxo::OrbitScene::BOTH;
+	int side = cxo::OrbitScene::BOTH, floorStyle = cxo::OrbitView::GRID, floorDensity = 1, floorBrightness = 2, hueShift = 1;
 	bool center = true, normalize = true, autoRotate = true, equalXY = false;
 
 	// Channel 0's state for the display, double-buffered so the UI thread never reads a half-written one.
 	cxo::OrbitState states[2];
+	cxo::Vec3 lastCenter, velocity; // channel 0's center, and its velocity smoothed to a few hertz
+	bool moving = false;            // whether lastCenter holds a center yet
 	std::atomic<int> front{0};
 	dsp::ClockDivider publishDivider;
 
@@ -99,6 +102,13 @@ struct Orbit : Module {
 			const cxo::Ring ring = cxo::orbitRing({mod(X_PARAM), mod(Y_PARAM), mod(Z_PARAM) + v.drift}, std::max(0.0, mod(RADIUS_PARAM)),
 			                                      std::clamp(mod(ECCENTRICITY_PARAM), -1.0, 1.0), pitch, roll, axis, v.turn);
 			const cxo::OrbitShape shape{ring, mode, std::clamp(mod(SPREAD_PARAM), -1.0, 1.0)};
+			if (c == 0) {
+				const double k = std::min(1.0, cxo::TAU * 4 * args.sampleTime);
+				if (moving)
+					velocity = velocity + ((ring.center - lastCenter) * args.sampleRate - velocity) * k;
+				lastCenter = ring.center;
+				moving = true;
+			}
 
 			unsigned wanted = 0;
 			for (int k = 0; k < OUTS; ++k)
@@ -119,7 +129,7 @@ struct Orbit : Module {
 			}
 
 			if (c == 0 && publishDivider.process()) {
-				cxo::OrbitState s{shape, pitch, roll, axis, field, hz, phase, channels, audio};
+				cxo::OrbitState s{shape, pitch, roll, axis, field, hz, phase, velocity, channels, audio};
 				for (int i = 0; i < MODS; ++i)
 					s.values[i] = i == FREQ_PARAM ? float(baseHz() * std::exp2(mod(i))) : float(mod(i)) * MOD[i].scale;
 				publish(s);
@@ -137,6 +147,12 @@ struct Orbit : Module {
 		accent = 0;
 		antialias = cxo::Antialias::AUTO;
 		side = cxo::OrbitScene::BOTH;
+		floorStyle = cxo::OrbitView::GRID;
+		floorDensity = 1;
+		floorBrightness = 2;
+		hueShift = 1;
+		moving = false;
+		velocity = {};
 		center = normalize = autoRotate = true;
 		equalXY = false;
 	}
@@ -155,6 +171,10 @@ struct Orbit : Module {
 		json_object_set_new(root, "normalize", json_boolean(normalize));
 		json_object_set_new(root, "autoRotate", json_boolean(autoRotate));
 		json_object_set_new(root, "side", json_integer(side));
+		json_object_set_new(root, "floor", json_integer(floorStyle));
+		json_object_set_new(root, "floorDensity", json_integer(floorDensity));
+		json_object_set_new(root, "floorBrightness", json_integer(floorBrightness));
+		json_object_set_new(root, "hueShift", json_integer(hueShift));
 		json_object_set_new(root, "equalXY", json_boolean(equalXY));
 		return root;
 	}
@@ -166,8 +186,11 @@ struct Orbit : Module {
 			accent = json_integer_value(j);
 		if (json_t* j = json_object_get(root, "antialias"))
 			antialias = std::clamp(int(json_integer_value(j)), 0, cxo::Antialias::LEVELS - 1);
-		if (json_t* j = json_object_get(root, "side"))
-			side = std::clamp(int(json_integer_value(j)), 0, cxo::OrbitScene::SIDES - 1);
+		for (auto [key, index, count] : {std::tuple{"side", &side, int(cxo::OrbitScene::SIDES)}, {"floor", &floorStyle, int(cxo::OrbitView::FLOORS)},
+		                                 {"floorDensity", &floorDensity, cxo::OrbitView::DENSITIES},
+		                                 {"floorBrightness", &floorBrightness, cxo::OrbitView::BRIGHTNESSES}, {"hueShift", &hueShift, cxo::OrbitView::HUES}})
+			if (json_t* j = json_object_get(root, key))
+				*index = std::clamp(int(json_integer_value(j)), 0, count - 1);
 		for (auto [key, flag] : {std::pair{"center", &center}, {"normalize", &normalize}, {"autoRotate", &autoRotate}, {"equalXY", &equalXY}})
 			if (json_t* j = json_object_get(root, key))
 				*flag = json_boolean_value(j);
@@ -177,6 +200,7 @@ struct Orbit : Module {
 struct OrbitDisplay : OledDisplay {
 	Orbit* module = nullptr;
 	cxo::OrbitScene scene;
+	static constexpr double PREVIEW_DRIFT = 0.15; // units per second
 	double visualPhase = 0, previewDrift = 0;
 	bool dragging = false;
 
@@ -185,6 +209,7 @@ struct OrbitDisplay : OledDisplay {
 			return module->latest();
 		cxo::OrbitState s; // a slowly drifting stand-in for the module browser
 		s.shape.ring.center.z = previewDrift;
+		s.velocity.z = PREVIEW_DRIFT;
 		return s;
 	}
 
@@ -198,7 +223,7 @@ struct OrbitDisplay : OledDisplay {
 			hz *= 0.5;
 		visualPhase += hz * dt;
 		visualPhase -= std::floor(visualPhase);
-		previewDrift += 0.15 * dt;
+		previewDrift += PREVIEW_DRIFT * dt;
 		if ((!module || module->autoRotate) && !dragging)
 			scene.camAzimuth += 0.08 * dt;
 		OledDisplay::step();
@@ -210,6 +235,12 @@ struct OrbitDisplay : OledDisplay {
 			s.phase = visualPhase;
 		scene.side = cxo::OrbitScene::Side(module ? module->side : int(cxo::OrbitScene::BOTH));
 		scene.equalXY = module && module->equalXY;
+		if (module) {
+			scene.view.floor = cxo::OrbitView::Floor(module->floorStyle);
+			scene.view.density = module->floorDensity;
+			scene.view.brightness = module->floorBrightness;
+			scene.view.hue = module->hueShift;
+		}
 		scene.paint(painter, s);
 	}
 
@@ -254,6 +285,11 @@ struct OrbitWidget : ModuleWidget {
 		menu->addChild(createBoolPtrMenuItem("Auto-rotate camera", "", &module->autoRotate));
 		menu->addChild(createIndexPtrSubmenuItem("Side panel", std::vector<std::string>(std::begin(cxo::OrbitScene::SIDE_NAMES), std::end(cxo::OrbitScene::SIDE_NAMES)), &module->side));
 		menu->addChild(createBoolPtrMenuItem("Equal XY scaling", "", &module->equalXY));
+		const auto names = [](const auto& list) { return std::vector<std::string>(std::begin(list), std::end(list)); };
+		menu->addChild(createIndexPtrSubmenuItem("Floor", names(cxo::OrbitView::FLOOR_NAMES), &module->floorStyle));
+		menu->addChild(createIndexPtrSubmenuItem("Floor density", names(cxo::OrbitView::DENSITY_NAMES), &module->floorDensity));
+		menu->addChild(createIndexPtrSubmenuItem("Floor brightness", names(cxo::OrbitView::BRIGHTNESS_NAMES), &module->floorBrightness));
+		menu->addChild(createIndexPtrSubmenuItem("Hue shift with height", names(cxo::OrbitView::HUE_NAMES), &module->hueShift));
 	}
 };
 

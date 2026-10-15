@@ -30,6 +30,8 @@ struct Options {
 	double spread = 0.5;
 	std::string side = "both";      // side panel: off, waves, xy or both
 	bool equalXY = false;
+	std::string floor = "grid";     // rows, grid or dots
+	int density = 1, brightness = 2, hue = 1; // as indices into OrbitView's names
 	bool removeDc = true, normalize = true;
 	int antialias = Antialias::AUTO;
 	int frames = 1;
@@ -56,6 +58,7 @@ static Options parse(int argc, char** argv) {
 		{"center", vec(&o.center.x, &o.center.y, &o.center.z)}, {"radius", val(o.radius)},
 		{"eccentricity", val(o.eccentricity)}, {"orient", vec(&o.pitch, &o.roll)}, {"drift", val(o.drift)}, {"rotate", val(o.rotate)}, {"axis", val(o.axis)},
 		{"mode", val(o.mode)}, {"spread", val(o.spread)}, {"side", val(o.side)}, {"equal-xy", val(o.equalXY)},
+		{"floor", val(o.floor)}, {"density", val(o.density)}, {"brightness", val(o.brightness)}, {"hue", val(o.hue)},
 		{"remove-dc", val(o.removeDc)}, {"normalize", val(o.normalize)}, {"antialias", val(o.antialias)},
 		{"frames", val(o.frames)}, {"fps", val(o.fps)}, {"cam", vec(&o.camAzimuth, &o.camElevation)},
 		{"cam-orbit", val(o.camOrbit)}, {"size", vec(&o.width, &o.height)}, {"view-rate", val(o.viewRate)}, {"out", val(o.out)},
@@ -70,6 +73,9 @@ static Options parse(int argc, char** argv) {
 	}
 	if (!o.panel.empty() && o.panel != "light" && o.panel != "dark")
 		throw std::invalid_argument("panel must be light or dark");
+	if (o.density < 0 || o.density >= OrbitView::DENSITIES || o.brightness < 0 || o.brightness >= OrbitView::BRIGHTNESSES || o.hue < 0 ||
+	    o.hue >= OrbitView::HUES)
+		throw std::invalid_argument("density, brightness or hue out of range");
 	if (o.antialias < 0 || o.antialias >= Antialias::LEVELS)
 		throw std::invalid_argument("antialias must be 0 to " + std::to_string(Antialias::LEVELS - 1));
 	return o;
@@ -78,8 +84,11 @@ static Options parse(int argc, char** argv) {
 // The index of `name` among `names`, ignoring case.
 template <size_t N>
 static int lookup(const char* const (&names)[N], std::string name, const char* what) {
-	std::transform(name.begin(), name.end(), name.begin(), ::toupper);
-	const auto it = std::find(std::begin(names), std::end(names), name);
+	const auto upper = [](std::string s) {
+		std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+		return s;
+	};
+	const auto it = std::find_if(std::begin(names), std::end(names), [&](const char* n) { return upper(n) == upper(name); });
 	if (it == std::end(names))
 		throw std::invalid_argument(std::string("unknown ") + what + " " + name);
 	return int(it - std::begin(names));
@@ -102,7 +111,7 @@ static OrbitShape shapeAt(const Options& o, double t) {
 
 static OrbitState stateAt(const Options& o, const StockField& field, double t) {
 	OrbitState s{shapeAt(o, t), o.pitch * PI / 180, o.roll * PI / 180, Ring::Axis(lookup(Ring::AXIS_NAMES, o.axis, "axis")),
-	             field, o.freq, o.viewRate * t, 1, o.freq >= 20};
+	             field, o.freq, o.viewRate * t, {0, 0, o.drift}, 1, o.freq >= 20};
 	s.values = {float(o.freq),  float(o.center.x), float(o.center.y), float(o.center.z), float(o.radius), float(o.eccentricity),
 	            float(o.drift), float(o.rotate),   float(o.pitch),    float(o.roll),     float(o.spread * 100)};
 	return s;
@@ -186,6 +195,10 @@ int main(int argc, char** argv) {
 			throw std::invalid_argument("side must be off, waves, xy or both");
 		scene.side = sides.at(side);
 		scene.equalXY = o.equalXY;
+		scene.view.floor = OrbitView::Floor(lookup(OrbitView::FLOOR_NAMES, o.floor, "floor"));
+		scene.view.density = o.density;
+		scene.view.brightness = o.brightness;
+		scene.view.hue = o.hue;
 		scene.camElevation = o.camElevation * PI / 180;
 		writeScope(o.out + "-scope.svg", frames, channels, int(std::min<double>(length, 2 * o.rate / o.freq)), scene.view.theme);
 		for (int k = 0; k < o.frames; ++k) {

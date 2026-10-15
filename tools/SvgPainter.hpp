@@ -40,6 +40,17 @@ public:
 			body << "'/>\n";
 		}
 	}
+	void segments(const std::vector<Vec2f>& pts, Rgba c, float w) override {
+		if (pts.size() < 2)
+			return;
+		for (const GlowPass& g : GLOW) {
+			body << "<path fill='none' stroke='" << rgb(c) << "' stroke-opacity='" << c.a * g.alpha << "' stroke-width='" << w * g.width
+			     << "' stroke-linecap='round' style='mix-blend-mode:plus-lighter' d='";
+			for (size_t i = 0; i + 1 < pts.size(); i += 2)
+				body << 'M' << pts[i].x << ',' << pts[i].y << 'L' << pts[i + 1].x << ',' << pts[i + 1].y;
+			body << "'/>\n";
+		}
+	}
 	void dot(Vec2f p, float r, Rgba c) override {
 		for (const GlowPass& g : GLOW)
 			body << "<circle cx='" << p.x << "' cy='" << p.y << "' r='" << r * g.width << "' fill='" << rgb(c) << "' fill-opacity='" << c.a * g.alpha

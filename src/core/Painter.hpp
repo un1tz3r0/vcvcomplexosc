@@ -1,4 +1,6 @@
 #pragma once
+#include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <string>
 #include <vector>
@@ -12,6 +14,13 @@ struct Rgba {
 };
 
 constexpr Rgba hex(unsigned rgb, float a = 1) { return {(rgb >> 16 & 255) / 255.f, (rgb >> 8 & 255) / 255.f, (rgb & 255) / 255.f, a}; }
+
+// `c` with its hue turned by `radians` about the gray axis, which keeps its brightness roughly the same.
+inline Rgba hueTurned(Rgba c, float radians) {
+	const float cs = std::cos(radians), sn = std::sin(radians), k = 0.57735027f, mean = (c.r + c.g + c.b) / 3;
+	const auto turn = [&](float v, float a, float b) { return std::clamp(v * cs + k * (b - a) * sn + mean * (1 - cs), 0.f, 1.f); };
+	return {turn(c.r, c.g, c.b), turn(c.g, c.b, c.r), turn(c.b, c.r, c.g), c.a};
+}
 
 // The OLED palette: an accent phosphor for fields, a contrasting one for rings, near-white for probes.
 struct Theme {
@@ -53,6 +62,16 @@ struct Painter {
 	virtual void dot(Vec2f center, float radius, Rgba color) = 0;
 	// `align` is -1, 0 or 1 to anchor the text's left edge, center or right edge at `pos`; it is centered vertically.
 	virtual void label(Vec2f pos, const std::string& text, float size, Rgba color, int align = 0) = 0;
+
+	// Unconnected segments from pts[0] to pts[1], pts[2] to pts[3] and so on, which a painter may batch.
+	virtual void segments(const std::vector<Vec2f>& pts, Rgba color, float lineWidth) {
+		for (size_t i = 0; i + 1 < pts.size(); i += 2)
+			line(pts[i], pts[i + 1], color, lineWidth);
+	}
+	virtual void dots(const std::vector<Vec2f>& centers, float radius, Rgba color) {
+		for (const Vec2f& p : centers)
+			dot(p, radius, color);
+	}
 
 	void line(Vec2f a, Vec2f b, Rgba color, float lineWidth) { stroke({a, b}, color, lineWidth); }
 	void rect(float x, float y, float w, float h, Rgba color) { fill({{x, y}, {x + w, y}, {x + w, y + h}, {x, y + h}}, color); }
