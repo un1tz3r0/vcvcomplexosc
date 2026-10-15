@@ -1,11 +1,13 @@
 # Handoff
 
-2026-10-15:
-- Phase 4 (Orbit controls: radius/eccentricity, pitch/roll, no ANGLE, A/B pair, XY scope) merged as 2.3.3 (PR #5).
-  Vic merged without saying it ran in Rack; once he confirms, a commit bumping to 2.4.0 marks phase 4 done in TODO.md.
-- Phase 5 (mesh floor rows/grid/dots, hue shift bands, velocity arrows) is 2.3.4 in PR #6, waiting on Vic.
-- Phase 6 next: SIMD across poly first, then fractal controls, cellular, domain distortion, value shaper, Field expander
-  (see the repo's DESIGN.md).
+2026-10-15 (later):
+- Phases 4 and 5 done (Vic confirmed in Rack). PR #7 (2.5.0): field engine core, cellular, warp/tilt, distortion, shaper.
+- Next: phase 6 = Orbit left-side layout, SYNC knob (window for triggers, pull for ramps) + tuner light, RANGE 3-way switch.
+  See /mnt/project-files/proposals/orbit-round-3.md and the repo's DESIGN.md.
+- Then phase 7: Field expander exposing the engine.
+
+harness/: calibrate.cpp (fractal|cells|exact ranges), spectrum.cpp + spectrum.py (bandwidth at -60 dB),
+fieldcost.cpp (CPU per field setting), voicecost.cpp, parts.cpp, voiceprof.cpp, drawcount.cpp.
 
 Typical session start:
   tools/setup-rack.sh ~/rack-src && make RACK_DIR=~/rack-src && make -C tools
