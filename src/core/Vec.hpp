@@ -35,6 +35,10 @@ struct Mat3 {
 		const double c = std::cos(a), s = std::sin(a);
 		return {{1, 0, 0}, {0, c, s}, {0, -s, c}};
 	}
+	static Mat3 rotY(double a) {
+		const double c = std::cos(a), s = std::sin(a);
+		return {{c, 0, -s}, {0, 1, 0}, {s, 0, c}};
+	}
 	static Mat3 rotZ(double a) {
 		const double c = std::cos(a), s = std::sin(a);
 		return {{c, s, 0}, {-s, c, 0}, {0, 0, 1}};

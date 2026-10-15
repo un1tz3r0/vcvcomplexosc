@@ -12,7 +12,7 @@ constexpr double C4 = 261.6256;
 // Everything the Orbit display needs to know about the oscillator at one moment.
 struct OrbitState {
 	OrbitShape shape{Ring{{}, {}, 1.2, 0.8}};
-	double tilt = 0, azimuth = 0; // radians: the ring plane's orientation before rotation, which the camera rides with
+	double pitch = 0, roll = 0; // radians: the ring plane's orientation before rotation, which the camera rides with
 	Ring::Axis axis = Ring::NORMAL;
 	StockField field;
 	double hz = C4, phase = 0;
@@ -49,35 +49,47 @@ inline std::string readout(int param, const OrbitState& s) {
 	}
 }
 
-// The Orbit display's composition: the 3D view and the unrolled waveforms side by side, the frequency in the corner,
-// and every tapped param's value where its wire meets the screen. Shared by the module's widget and tools/render.
+// The Orbit display's composition: the 3D view beside a side panel of the unrolled waveforms, the XY scope or both,
+// the frequency in the corner, and every tapped param's value where its wire meets the screen.
+// Shared by the module's widget and tools/render.
 struct OrbitScene {
+	enum Side { OFF, WAVES, XY, BOTH, SIDES };
+	static constexpr const char* SIDE_NAMES[SIDES] = {"Off", "Waveforms", "XY scope", "Both"};
+
 	OrbitView view;
-	bool strip = true;
+	Side side = BOTH;
+	bool equalXY = false;
 	std::vector<Panel::Tap> taps;
 	double camAzimuth = -1.05, camElevation = 0.5; // radians, relative to the ring plane
 
 	void paint(Painter& out, const OrbitState& s) const {
 		const Theme& theme = view.theme;
 		const float u = out.height / 108, font = 6.4f * u;
-		bool bottom = false, side = false;
+		bool bottom = false, right = false;
 		for (const Panel::Tap& t : taps)
-			(t.side ? side : bottom) = true;
-		const float w = out.width - (side ? 33 * u : 0), h = out.height - (bottom ? 14 * u : 0), viewW = strip ? 0.62f * w : w;
+			(t.side ? right : bottom) = true;
+		const float w = out.width - (right ? 33 * u : 0), h = out.height - (bottom ? 14 * u : 0), viewW = side != OFF ? 0.62f * w : w;
 
 		const std::vector<Trace> traces = s.shape.traces(s.phase);
 		const Ring& ring = s.shape.ring;
-		const Camera cam = Camera::orbit(ring.center, 2.35 * reach(ring.center, traces), camAzimuth, camElevation, viewW, h, Ring::orient(s.tilt, s.azimuth));
+		const Camera cam = Camera::orbit(ring.center, 2.35 * reach(ring.center, traces), camAzimuth, camElevation, viewW, h, Ring::orient(s.pitch, s.roll));
 		view(out, cam, s.field, ring, traces);
 
 		// Each panel below occludes whatever of the view spills into it, then draws its divider.
 		const Rgba rule = theme.guide * 0.8f;
-		if (strip) {
+		if (side != OFF) {
 			out.rect(viewW, 0, w - viewW, h, theme.glass);
 			out.line({viewW, 5 * u}, {viewW, h - 5 * u}, rule, 0.6f * u);
-			view.strip(out, viewW + 5 * u, 7 * u, w - viewW - 10 * u, h - 14 * u, s.field, s.shape, s.phase);
+			const OrbitView::Cycle waves = OrbitView::cycle(s.field, s.shape);
+			const float x = viewW + 5 * u, y = 7 * u, bw = w - viewW - 10 * u, bh = h - 14 * u, wavesH = side == BOTH ? 0.34f * bh : bh;
+			if (side != XY)
+				view.strip(out, x, y, bw, wavesH, waves, s.phase);
+			if (side == BOTH)
+				out.line({x, y + wavesH + 3 * u}, {x + bw, y + wavesH + 3 * u}, rule, 0.6f * u);
+			if (side != WAVES)
+				view.xy(out, x, side == BOTH ? y + wavesH + 6 * u : y, bw, side == BOTH ? bh - wavesH - 6 * u : bh, waves, s.phase, equalXY);
 		}
-		if (side) {
+		if (right) {
 			out.rect(w, 0, out.width - w, h, theme.glass);
 			out.line({w, 5 * u}, {w, h - 5 * u}, rule, 0.6f * u);
 		}

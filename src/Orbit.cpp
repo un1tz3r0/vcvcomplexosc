@@ -22,7 +22,8 @@ struct Orbit : Module {
 	int64_t seed = 0;
 	int accent = 0; // of cxo::Theme::ACCENTS
 	int antialias = cxo::Antialias::AUTO;
-	bool center = true, normalize = true, autoRotate = true, showStrip = true;
+	int side = cxo::OrbitScene::BOTH;
+	bool center = true, normalize = true, autoRotate = true, equalXY = false;
 
 	// Channel 0's state for the display, double-buffered so the UI thread never reads a half-written one.
 	cxo::OrbitState states[2];
@@ -44,14 +45,14 @@ struct Orbit : Module {
 		configSwitch(FIELD_PARAM, 0.f, 2.f, 0.f, "Field", {"Simplex 3D", "Simplex 2D", "Gyroid"});
 		configParam(OCTAVES_PARAM, 1.f, 4.f, 1.f, "Octaves")->snapEnabled = true;
 		configSwitch(MODE_PARAM, 0.f, 4.f, 0.f, "Spread mode",
-		             {"Phase: outputs spread around one ring", "Pinch: rings scaled to meet at the angle", "Stack: rings stacked along the normal",
-		              "Radial: concentric rings", "Fan: rings hinged on the diameter at the angle"});
+		             {"Phase: B reads the same ring further ahead", "Pinch: B's ring is scaled about phase 0", "Stack: B's ring is shifted along the normal",
+		              "Radial: B's ring is scaled about the center", "Fan: B's ring is turned about the diameter through phase 0"});
 		configSwitch(AXIS_PARAM, 0.f, 5.f, 0.f, "Rotation axis", {"Normal (spin in plane)", "Major axis", "Minor axis", "World X", "World Y", "World Z"});
 		configSwitch(RANGE_PARAM, 0.f, 1.f, 1.f, "Range", {"LFO", "Audio"});
 		configInput(VOCT_INPUT, "1V/octave pitch");
 		configInput(SYNC_INPUT, "Hard sync");
-		for (int k = 0; k < OUTS; ++k)
-			configOutput(WAVE_OUTPUT + k, string::f("Wave %d", k + 1));
+		configOutput(WAVE_OUTPUT, "A");
+		configOutput(WAVE_OUTPUT + 1, "B");
 		configOutput(X_OUTPUT, "Probe X");
 		configOutput(Y_OUTPUT, "Probe Y");
 		configOutput(Z_OUTPUT, "Probe Z");
@@ -94,10 +95,10 @@ struct Orbit : Module {
 			v.turn += mod(ROTATE_PARAM) * args.sampleTime;
 			v.turn -= std::floor(v.turn);
 
-			const double tilt = mod(TILT_PARAM) * cxo::PI / 180, azimuth = mod(AZIMUTH_PARAM) * cxo::PI / 180;
-			const cxo::Ring ring = cxo::orbitRing({mod(X_PARAM), mod(Y_PARAM), mod(Z_PARAM) + v.drift}, std::max(0.0, mod(MAJOR_PARAM)),
-			                                      std::max(0.0, mod(MINOR_PARAM)), tilt, azimuth, axis, v.turn);
-			const cxo::OrbitShape shape{ring, mode, mod(SPREAD_PARAM), mod(ANGLE_PARAM) / 360, OUTS};
+			const double pitch = mod(PITCH_PARAM) * cxo::PI / 180, roll = mod(ROLL_PARAM) * cxo::PI / 180;
+			const cxo::Ring ring = cxo::orbitRing({mod(X_PARAM), mod(Y_PARAM), mod(Z_PARAM) + v.drift}, std::max(0.0, mod(RADIUS_PARAM)),
+			                                      std::clamp(mod(ECCENTRICITY_PARAM), -1.0, 1.0), pitch, roll, axis, v.turn);
+			const cxo::OrbitShape shape{ring, mode, std::clamp(mod(SPREAD_PARAM), -1.0, 1.0)};
 
 			unsigned wanted = 0;
 			for (int k = 0; k < OUTS; ++k)
@@ -118,7 +119,7 @@ struct Orbit : Module {
 			}
 
 			if (c == 0 && publishDivider.process()) {
-				cxo::OrbitState s{shape, tilt, azimuth, axis, field, hz, phase, channels, audio};
+				cxo::OrbitState s{shape, pitch, roll, axis, field, hz, phase, channels, audio};
 				for (int i = 0; i < MODS; ++i)
 					s.values[i] = i == FREQ_PARAM ? float(baseHz() * std::exp2(mod(i))) : float(mod(i)) * MOD[i].scale;
 				publish(s);
@@ -135,7 +136,9 @@ struct Orbit : Module {
 		seed = 0;
 		accent = 0;
 		antialias = cxo::Antialias::AUTO;
-		center = normalize = autoRotate = showStrip = true;
+		side = cxo::OrbitScene::BOTH;
+		center = normalize = autoRotate = true;
+		equalXY = false;
 	}
 
 	void onRandomize(const RandomizeEvent& e) override {
@@ -151,7 +154,8 @@ struct Orbit : Module {
 		json_object_set_new(root, "center", json_boolean(center));
 		json_object_set_new(root, "normalize", json_boolean(normalize));
 		json_object_set_new(root, "autoRotate", json_boolean(autoRotate));
-		json_object_set_new(root, "showStrip", json_boolean(showStrip));
+		json_object_set_new(root, "side", json_integer(side));
+		json_object_set_new(root, "equalXY", json_boolean(equalXY));
 		return root;
 	}
 
@@ -162,7 +166,9 @@ struct Orbit : Module {
 			accent = json_integer_value(j);
 		if (json_t* j = json_object_get(root, "antialias"))
 			antialias = std::clamp(int(json_integer_value(j)), 0, cxo::Antialias::LEVELS - 1);
-		for (auto [key, flag] : {std::pair{"center", &center}, {"normalize", &normalize}, {"autoRotate", &autoRotate}, {"showStrip", &showStrip}})
+		if (json_t* j = json_object_get(root, "side"))
+			side = std::clamp(int(json_integer_value(j)), 0, cxo::OrbitScene::SIDES - 1);
+		for (auto [key, flag] : {std::pair{"center", &center}, {"normalize", &normalize}, {"autoRotate", &autoRotate}, {"equalXY", &equalXY}})
 			if (json_t* j = json_object_get(root, key))
 				*flag = json_boolean_value(j);
 	}
@@ -202,7 +208,8 @@ struct OrbitDisplay : OledDisplay {
 		cxo::OrbitState s = state();
 		if (!module || s.hz > 2)
 			s.phase = visualPhase;
-		scene.strip = !module || module->showStrip;
+		scene.side = cxo::OrbitScene::Side(module ? module->side : int(cxo::OrbitScene::BOTH));
+		scene.equalXY = module && module->equalXY;
 		scene.paint(painter, s);
 	}
 
@@ -245,7 +252,8 @@ struct OrbitWidget : ModuleWidget {
 		menu->addChild(createMenuLabel("Display"));
 		menu->addChild(createIndexPtrSubmenuItem("Color", std::vector<std::string>(std::begin(cxo::Theme::ACCENTS), std::end(cxo::Theme::ACCENTS)), &module->accent));
 		menu->addChild(createBoolPtrMenuItem("Auto-rotate camera", "", &module->autoRotate));
-		menu->addChild(createBoolPtrMenuItem("Waveform strip", "", &module->showStrip));
+		menu->addChild(createIndexPtrSubmenuItem("Side panel", std::vector<std::string>(std::begin(cxo::OrbitScene::SIDE_NAMES), std::end(cxo::OrbitScene::SIDE_NAMES)), &module->side));
+		menu->addChild(createBoolPtrMenuItem("Equal XY scaling", "", &module->equalXY));
 	}
 };
 
